@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Neues Editor-Layout: Bei genug Breite stehen links alle Eingabefelder und rechts der Grundriss bzw. die 3D-Ansicht (mitlaufend beim Scrollen).
+- Neue Ansicht „2D + 3D“ zeigt Grundriss und 3D-Vorschau gleichzeitig.
+- Auffälliger „Großansicht“-Button: macht das Editor-Fenster fast bildschirmfüllend (breiter und höher), blendet die doppelte Kartenvorschau von HA aus und merkt sich die Einstellung.
+- Der Grundriss passt sich beim Vergrößern automatisch an.
+
 ## 0.3.0
 
 - Dachschrägen: Jede Wand hat eine Höhe am Anfang (A) und am Ende (E).

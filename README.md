@@ -18,7 +18,7 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
   - Verschieben, Eckpunkte ziehen (verbundene Wände ziehen mit), Rückgängig/Wiederholen, Maße direkt eingeben.
   - Wandhöhe am Anfang und Ende getrennt einstellbar (Dachschrägen).
   - Texturen für Wände und Böden: eingebaut (Parkett, Fliesen, Teppich, Backstein, Beton, Rauputz, Tapete) oder eigenes Bild, z. B. `/local/texturen/holz.jpg`.
-  - Button „Breiter“, um das Editor-Fenster zu verbreitern.
+  - Button „Großansicht“: Editor fast bildschirmfüllend, links die Eingabefelder, rechts Grundriss und/oder 3D-Vorschau (auch beides gleichzeitig).
   - Hintergrundbild (z. B. ein eingescannter Grundriss) zum Nachzeichnen.
   - 3D-Vorschau und speicherbare Startansicht der Kamera.
   - Import/Export als JSON.
