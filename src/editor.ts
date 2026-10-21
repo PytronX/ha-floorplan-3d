@@ -429,6 +429,7 @@ export class FloorplanCardEditor extends HTMLElement {
         </label>
         <label class="check"><input type="checkbox" data-k="show_labels" ${c.show_labels !== false ? "checked" : ""}> Zustands-Labels anzeigen</label>
         <label class="check"><input type="checkbox" data-k="show_room_names" ${c.show_room_names !== false ? "checked" : ""}> Raumnamen anzeigen</label>
+        <label class="check wide"><input type="checkbox" data-k="full_page" ${c.full_page ? "checked" : ""}> Ganze Dashboard-Seite ausfüllen (für Panel-Ansicht)</label>
       </div>`;
     el.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-k]").forEach((input) =>
       input.addEventListener("change", () => {
