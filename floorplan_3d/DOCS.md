@@ -12,14 +12,15 @@ Gab es den Ordner `www` vorher noch nicht, musst du Home Assistant **einmal neu 
 
 1. Dashboard öffnen → **Bearbeiten** → **Karte hinzufügen** → „**3D Floorplan Card**“.
 2. Im Editor zeichnen:
-   - **Raum + Wände**: zwei gegenüberliegende Ecken anklicken → vier Wände und ein Raum.
+   - **Raum + Wände**: Rechteck aufziehen → vier Wände und ein Raum.
    - **Wand**: Punkte klicken; Doppelklick, Rechtsklick oder `Esc` beendet.
-   - **Raum**: Eckpunkte klicken; Klick auf den ersten Punkt schließt den Raum. Die Fläche in m² wird berechnet.
+   - **Raum**: Rechteck aufziehen oder Eckpunkte klicken; Klick auf den ersten Punkt schließt den Raum. Die Fläche in m² wird berechnet.
    - **Tür / Fenster**: auf eine Wand klicken, danach entlang der Wand verschieben.
-   - **Hitbox**: zwei Ecken anklicken, Entität, Höhe und Klick-Aktion wählen.
+   - **Hitbox**: Rechteck aufziehen, Entität suchen, Höhe und Aktionen wählen.
+   - **Etagen**: mit „+ Etage“ weitere Stockwerke anlegen; auf der Karte schaltet man oben links um.
 3. **Speichern**.
 
-Bedienung im Editor: mit gedrückter linker Maustaste ziehen = verschieben (in jedem Werkzeug), Mausrad = Zoom, `Entf` = löschen, `Strg+Z` = rückgängig.
+Bedienung im Editor: mit gedrückter rechter Maustaste ziehen = verschieben (in jedem Werkzeug), Mausrad = Zoom, `Entf` = löschen, `Strg+Z` = rückgängig.
 
 ## Karte als ganze Dashboard-Seite
 
@@ -34,7 +35,7 @@ Zusätzlich hat jede Karte unten rechts einen **Vollbild-Button**.
 - Zeigen Name und Zustand (z. B. `21,5 °C`) und leuchten gelb, wenn die Entität an ist.
 - Lampen werfen in der 3D-Ansicht echtes Licht in ihrer Farbe und Helligkeit.
 - Tippen: *Automatisch* schaltet Licht/Schalter/Cover usw. um, löst Buttons/Szenen/Skripte aus und öffnet sonst den Info-Dialog.
-- Lange drücken oder Rechtsklick: immer Info-Dialog.
+- Halten (oder Rechtsklick) und Doppelklick haben eigene Aktionen; Standard ist Info-Dialog bzw. nichts.
 
 ## Optionen
 

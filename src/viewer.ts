@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { domainOf, formatState, friendlyName, isActive } from "./ha";
 import { TextureCache, defaultTextureSize } from "./textures";
-import { DEFAULTS, formatArea, roomArea, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
+import { DEFAULTS, formatArea, normalizeFloorplan, roomArea, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
 
 const CM = 0.01;
 const HITBOX_IDLE = 0x3fa7ff;
@@ -168,7 +168,7 @@ export class Viewer {
   private rebuild(): void {
     const cfg = this.config!;
     this.clearWorld();
-    const fp = cfg.floorplan;
+    const fp = normalizeFloorplan(cfg.floorplan);
 
     // Floors
     for (const room of fp.rooms) {

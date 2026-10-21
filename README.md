@@ -10,24 +10,26 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
 
 - **3D-Ansicht** (Three.js): Wände (auch mit Dachschräge), Türen, Fenster und Räume mit Farben oder Texturen; drehen, zoomen, verschieben mit Maus oder Touch.
 - **Eingebauter Editor** im normalen Karten-Editor von HA:
-  - *Raum + Wände*: zwei gegenüberliegende Ecken anklicken → vier Wände und ein Raum.
+  - *Raum + Wände*: Rechteck aufziehen → vier Wände und ein Raum.
   - *Wand*: Wandzüge Punkt für Punkt zeichnen (Raster- und Eckpunkt-Fang, Längenanzeige).
-  - *Raum*: Bodenflächen als Polygon (Eckpunkte klicken), mit Flächenanzeige in m².
+  - *Raum*: Bodenflächen als Rechteck oder Polygon, mit Flächenanzeige in m².
   - *Tür / Fenster*: auf eine Wand klicken, danach entlang der Wand verschieben.
-  - *Hitbox*: zwei Ecken anklicken, Entität, Höhe, Icon und Klick-Aktion festlegen.
-  - In jedem Werkzeug: linke Maustaste gedrückt halten und ziehen = Ansicht verschieben.
+  - *Hitbox*: Rechteck aufziehen, Entität (mit Suche), Höhe, Icon und Aktionen festlegen.
+  - **Etagen**: beliebig viele Stockwerke; die Etage darunter wird beim Zeichnen blass eingeblendet.
+  - In jedem Werkzeug: rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben.
   - Verschieben, Eckpunkte ziehen (verbundene Wände ziehen mit), Rückgängig/Wiederholen, Maße direkt eingeben.
   - Wandhöhe am Anfang und Ende getrennt einstellbar (Dachschrägen).
   - Texturen für Wände und Böden: eingebaut (Parkett, Fliesen, Teppich, Backstein, Beton, Rauputz, Tapete) oder eigenes Bild, z. B. `/local/texturen/holz.jpg`.
-  - Button „Großansicht“: Editor fast bildschirmfüllend, links die Eingabefelder, rechts Grundriss und/oder 3D-Vorschau (auch beides gleichzeitig).
+  - Button „Großansicht“: Editor fast bildschirmfüllend, links die Eingabefelder, rechts Grundriss und/oder 3D-Vorschau (auch beides nebeneinander).
   - Hintergrundbild (z. B. ein eingescannter Grundriss) zum Nachzeichnen.
   - 3D-Vorschau und speicherbare Startansicht der Kamera.
   - Import/Export als JSON.
+- **Etagen-Umschalter** oben links auf der Karte, sobald es mehr als eine Etage gibt.
 - **Hitboxen**
   - zeigen Name und Zustand als Label (z. B. `21,5 °C`) und leuchten gelb, wenn die Entität „an“ ist;
   - Lampen werfen in 3D echtes Licht (Helligkeit und Farbe werden übernommen);
   - Klick/Tap: *Automatisch* (Licht/Schalter/Ventilator/Cover … umschalten, Button/Szene/Skript auslösen, sonst Info-Dialog), oder fest *Umschalten*, *Auslösen*, *Info-Dialog*, *Nichts*;
-  - langes Drücken oder Rechtsklick öffnet immer den Info-Dialog;
+  - eigene Aktionen für Halten (Standard: Info-Dialog) und Doppelklick (Standard: nichts);
   - Sichtbarkeit: immer, nur beim Überfahren oder unsichtbar.
 
 ## Installation
@@ -99,6 +101,20 @@ floorplan:
       label: Deckenlampe
       icon: mdi:ceiling-light
       action: auto  # auto | toggle | press | more-info | none
+      hold_action: more-info      # Standard
+      double_tap_action: toggle   # Standard: none
+```
+
+Mehrere Etagen stehen statt unter `floorplan` unter `floors`:
+
+```yaml
+floors:
+  - id: eg
+    name: Erdgeschoss
+    floorplan: { walls: [...], openings: [...], rooms: [...], hotspots: [...] }
+  - id: og
+    name: Obergeschoss
+    floorplan: { ... }
 ```
 
 ## Entwicklung
