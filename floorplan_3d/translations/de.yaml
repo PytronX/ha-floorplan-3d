@@ -1,0 +1,4 @@
+configuration:
+  register_resource:
+    name: Dashboard-Ressource automatisch eintragen
+    description: Trägt die Karte beim Start automatisch unter Einstellungen → Dashboards → Ressourcen ein.

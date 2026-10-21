@@ -1,0 +1,20 @@
+name: 3D Floorplan
+version: "0.2.0"
+slug: floorplan_3d
+description: 3D-Grundriss deiner Wohnung als Dashboard-Karte, mit Editor und klickbaren Hitboxen für Entitäten.
+url: https://github.com/PytronX/ha-floorplan-3d
+arch:
+  - aarch64
+  - amd64
+init: false
+homeassistant_api: true
+ingress: true
+panel_icon: mdi:floor-plan
+panel_title: 3D Floorplan
+map:
+  - type: homeassistant_config
+    read_only: false
+options:
+  register_resource: true
+schema:
+  register_resource: bool

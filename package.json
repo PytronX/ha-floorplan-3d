@@ -1,13 +1,13 @@
 {
   "name": "ha-floorplan-3d",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "3D floorplan card for Home Assistant with built-in editor and entity hitboxes",
   "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --minify --format=esm --target=es2020 --outfile=dist/floorplan-3d-card.js",
-    "watch": "esbuild src/index.ts --bundle --format=esm --target=es2020 --outfile=dist/floorplan-3d-card.js --watch",
+    "build": "esbuild src/index.ts --bundle --minify --format=esm --target=es2020 --outfile=floorplan_3d/www/floorplan-3d-card.js",
+    "watch": "esbuild src/index.ts --bundle --format=esm --target=es2020 --outfile=floorplan_3d/www/floorplan-3d-card.js --watch",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

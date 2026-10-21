@@ -1,8 +1,8 @@
 # 3D Floorplan Card für Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
+[![Open your Home Assistant instance and show the add app repository dialog.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FPytronX%2Fha-floorplan-3d)
 
-Eine Lovelace-Karte, mit der du **deine Wohnung als 3D-Grundriss** direkt im Home-Assistant-Dashboard zeichnest – ähnlich wie in SweetHome 3D – und darin **Hitboxen** platzierst, die mit Entitäten verbunden sind: Sensorwerte anzeigen, Lampen schalten, Buttons drücken, Szenen starten …
+Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnung als 3D-Grundriss** direkt im Home-Assistant-Dashboard zeichnest – ähnlich wie in SweetHome 3D – und darin **Hitboxen** platzierst, die mit Entitäten verbunden sind: Sensorwerte anzeigen, Lampen schalten, Buttons drücken, Szenen starten …
 
 ![Screenshot](docs/screenshot.png)
 
@@ -28,15 +28,11 @@ Eine Lovelace-Karte, mit der du **deine Wohnung als 3D-Grundriss** direkt im Hom
 
 ## Installation
 
-### HACS (empfohlen)
+1. Auf den Button oben klicken **oder** in Home Assistant *Einstellungen → Apps → App-Store → ⋮ → Repositories* öffnen und `https://github.com/PytronX/ha-floorplan-3d` hinzufügen.
+2. Die App **3D Floorplan** installieren und starten.
+3. Die App kopiert die Karte nach `/config/www/floorplan-3d/` und trägt sie automatisch als Dashboard-Ressource ein. Wurde der Ordner `www` dabei neu angelegt, Home Assistant einmal neu starten.
 
-1. HACS → ⋮ → **Benutzerdefinierte Repositories** → `https://github.com/PytronX/ha-floorplan-3d`, Typ **Dashboard**.
-2. „3D Floorplan Card“ installieren und den Browser neu laden.
-
-### Manuell
-
-1. `dist/floorplan-3d-card.js` nach `config/www/` kopieren.
-2. Einstellungen → Dashboards → ⋮ → **Ressourcen** → `/local/floorplan-3d-card.js` als *JavaScript-Modul* hinzufügen.
+Die App braucht Home Assistant OS oder eine Supervised-Installation (dort gibt es den App-Store).
 
 ## Benutzung
 
@@ -92,12 +88,12 @@ floorplan:
 
 ```bash
 npm install
-npm run watch      # baut dist/floorplan-3d-card.js bei jeder Änderung
+npm run watch      # baut floorplan_3d/www/floorplan-3d-card.js bei jeder Änderung
 npm run typecheck
 npm run build
 ```
 
-Das gebaute `dist/floorplan-3d-card.js` wird mit eingecheckt, damit HACS es direkt ausliefern kann.
+Das gebaute `floorplan_3d/www/floorplan-3d-card.js` wird mit eingecheckt, weil es in das App-Image kopiert wird. Der App-Teil (Dockerfile, `config.yaml`, Python-Dienst für Installation und Seitenleisten-Panel) liegt in `floorplan_3d/`.
 
 ## Ideen für später
 
