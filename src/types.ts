@@ -10,8 +10,14 @@ export interface Wall {
   x2: number;
   y2: number;
   thickness?: number;
+  /** Height at the start point (x1/y1). */
   height?: number;
+  /** Height at the end point (x2/y2); defaults to `height`. Different values give a sloped top. */
+  height_end?: number;
   color?: string;
+  texture?: string;
+  /** Size of one texture tile in cm. */
+  texture_scale?: number;
 }
 
 export type OpeningType = "door" | "window";
@@ -33,6 +39,8 @@ export interface Room {
   name?: string;
   points: Point[];
   color?: string;
+  texture?: string;
+  texture_scale?: number;
 }
 
 export type HotspotAction = "auto" | "toggle" | "more-info" | "press" | "none";
@@ -86,6 +94,8 @@ export interface CardConfig {
   wall_thickness?: number;
   wall_color?: string;
   floor_color?: string;
+  wall_texture?: string;
+  floor_texture?: string;
   background_color?: string;
   hitbox_mode?: HitboxMode;
   show_room_names?: boolean;

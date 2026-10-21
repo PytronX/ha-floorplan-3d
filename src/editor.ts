@@ -12,6 +12,7 @@ import {
   type Room,
   type Wall,
 } from "./types";
+import { BUILTIN_PREFIX, BUILTIN_TEXTURES, defaultTextureSize, textureLabel } from "./textures";
 import { Viewer, VIEWER_STYLES, centroid } from "./viewer";
 
 type Tool = "select" | "wall" | "box" | "room" | "door" | "window" | "hotspot";
@@ -68,6 +69,9 @@ export class FloorplanCardEditor extends HTMLElement {
   private tab: "2d" | "3d" = "2d";
   private viewer?: Viewer;
   private entityIds: string[] = [];
+  private wide = false;
+  /** Item whose texture select is on "custom" but has no URL yet. */
+  private customTextureFor?: string;
 
   private svg!: SVGSVGElement;
   private propsEl!: HTMLDivElement;
@@ -198,6 +202,8 @@ export class FloorplanCardEditor extends HTMLElement {
       <div class="tabs">
         <button data-tab="2d" class="on">Grundriss (2D)</button>
         <button data-tab="3d">3D-Vorschau</button>
+        <span class="sep"></span>
+        <button data-act="wide" class="wide-btn" title="Editor-Fenster verbreitern">⇔ Breiter</button>
       </div>
       <div class="pane-2d">
         <div class="toolbar">
@@ -278,6 +284,8 @@ export class FloorplanCardEditor extends HTMLElement {
       case "fit":
         this.fitView();
         return this.render2d();
+      case "wide":
+        return this.toggleWide();
       case "cam-save":
         if (!this.viewer) return;
         this.config = { ...this.config, camera: this.viewer.getCamera() };
@@ -367,6 +375,8 @@ export class FloorplanCardEditor extends HTMLElement {
         <label>Wandhöhe (cm)<input type="number" data-k="wall_height" value="${c.wall_height ?? DEFAULTS.wall_height}"></label>
         <label>Wandstärke (cm)<input type="number" data-k="wall_thickness" value="${c.wall_thickness ?? DEFAULTS.wall_thickness}"></label>
         <label>Wandfarbe<input type="color" data-k="wall_color" value="${c.wall_color ?? DEFAULTS.wall_color}"></label>
+        <label>Standard-Wandtextur<select data-k="wall_texture">${this.builtinOptions(c.wall_texture)}</select></label>
+        <label>Standard-Bodentextur<select data-k="floor_texture">${this.builtinOptions(c.floor_texture)}</select></label>
         <label>Hitboxen
           <select data-k="hitbox_mode">
             ${[["visible", "immer sichtbar"], ["hover", "nur bei Mauszeiger"], ["hidden", "unsichtbar"]]
@@ -393,6 +403,67 @@ export class FloorplanCardEditor extends HTMLElement {
         this.render2d();
       })
     );
+  }
+
+  private builtinOptions(cur: string | undefined): string {
+    const opts = [`<option value="">Keine</option>`];
+    for (const [k, d] of Object.entries(BUILTIN_TEXTURES)) {
+      const v = BUILTIN_PREFIX + k;
+      opts.push(`<option value="${v}" ${cur === v ? "selected" : ""}>${d.label}</option>`);
+    }
+    if (cur && !cur.startsWith(BUILTIN_PREFIX)) opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}</option>`);
+    return opts.join("");
+  }
+
+  private textureFields(id: string, cur: string | undefined, scale: number | undefined, inherited: string | undefined): string {
+    const custom = this.customTextureFor === id || (!!cur && cur !== "none" && !cur.startsWith(BUILTIN_PREFIX));
+    const opts = [
+      `<option value="" ${!cur && !custom ? "selected" : ""}>${inherited ? `Standard (${esc(textureLabel(inherited))})` : "Keine"}</option>`,
+    ];
+    if (inherited) opts.push(`<option value="none" ${cur === "none" ? "selected" : ""}>Keine</option>`);
+    for (const [k, d] of Object.entries(BUILTIN_TEXTURES)) {
+      const v = BUILTIN_PREFIX + k;
+      opts.push(`<option value="${v}" ${cur === v ? "selected" : ""}>${d.label}</option>`);
+    }
+    opts.push(`<option value="custom" ${custom ? "selected" : ""}>Eigenes Bild (URL) …</option>`);
+    const effective = cur && cur !== "none" ? cur : !cur ? inherited : undefined;
+    return (
+      `<label>Textur<select data-p="texture_sel">${opts.join("")}</select></label>` +
+      (custom
+        ? `<label class="wide">Bild-URL (z.B. /local/texturen/holz.jpg)<input data-p="texture_url" value="${esc(custom && cur && !cur.startsWith(BUILTIN_PREFIX) ? cur : "")}" placeholder="/local/texturen/holz.jpg"></label>`
+        : "") +
+      (effective
+        ? `<label>Kachelgröße (cm)<input type="number" data-p="texture_scale" value="${scale ?? ""}" placeholder="${defaultTextureSize(effective)}"></label>`
+        : "")
+    );
+  }
+
+  private toggleWide(): void {
+    this.wide = !this.wide;
+    this.root.querySelector(".wide-btn")?.classList.toggle("on", this.wide);
+    const dialog = this.findAncestor("hui-dialog-edit-card");
+    if (!dialog) return;
+    if ("large" in dialog) (dialog as any).large = this.wide;
+    const inner = dialog.shadowRoot?.querySelector<HTMLElement>("ha-dialog, ha-md-dialog, ha-wa-dialog, ha-adaptive-dialog");
+    const width = "min(1600px, 96vw)";
+    for (const el of [dialog, inner]) {
+      if (!el) continue;
+      for (const prop of ["--mdc-dialog-min-width", "--mdc-dialog-max-width", "--ha-dialog-width-md", "--ha-dialog-width-lg", "--md-dialog-container-max-inline-size", "--md-dialog-container-min-inline-size"]) {
+        if (this.wide) el.style.setProperty(prop, width);
+        else el.style.removeProperty(prop);
+      }
+    }
+    // Let the canvas pick up its new size.
+    requestAnimationFrame(() => this.render2d());
+  }
+
+  private findAncestor(name: string): HTMLElement | undefined {
+    let node: Node | null = this;
+    while (node) {
+      if (node instanceof HTMLElement && node.localName === name) return node;
+      node = (node as HTMLElement).assignedSlot ?? node.parentNode ?? (node as ShadowRoot).host ?? null;
+    }
+    return undefined;
   }
 
   private renderBackground(): void {
@@ -445,8 +516,11 @@ export class FloorplanCardEditor extends HTMLElement {
         body =
           num("length", "Länge (cm)", round(Math.hypot(w.x2 - w.x1, w.y2 - w.y1))) +
           num("thickness", "Stärke (cm)", w.thickness, String(this.config.wall_thickness ?? DEFAULTS.wall_thickness)) +
-          num("height", "Höhe (cm)", w.height, String(this.config.wall_height ?? DEFAULTS.wall_height)) +
-          color("color", "Farbe", w.color, this.config.wall_color ?? DEFAULTS.wall_color);
+          num("height", "Höhe am Anfang A (cm)", w.height, String(this.config.wall_height ?? DEFAULTS.wall_height)) +
+          num("height_end", "Höhe am Ende E (cm)", w.height_end, String(w.height ?? this.config.wall_height ?? DEFAULTS.wall_height)) +
+          color("color", "Farbe", w.color, this.config.wall_color ?? DEFAULTS.wall_color) +
+          this.textureFields(w.id, w.texture, w.texture_scale, this.config.wall_texture) +
+          `<div class="note wide">Unterschiedliche Höhen an A und E ergeben eine Dachschräge. Eine Farbe färbt die Textur zusätzlich ein.</div>`;
         break;
       }
       case "opening": {
@@ -463,7 +537,10 @@ export class FloorplanCardEditor extends HTMLElement {
       case "room": {
         const r = item as Room;
         title = "Raum";
-        body = txt("name", "Name", r.name) + color("color", "Bodenfarbe", r.color, this.config.floor_color ?? DEFAULTS.floor_color);
+        body =
+          txt("name", "Name", r.name) +
+          color("color", "Bodenfarbe", r.color, this.config.floor_color ?? DEFAULTS.floor_color) +
+          this.textureFields(r.id, r.texture, r.texture_scale, this.config.floor_texture);
         break;
       }
       case "hotspot": {
@@ -521,6 +598,20 @@ export class FloorplanCardEditor extends HTMLElement {
       else item.show_label = false;
     } else if (this.sel.kind === "hotspot" && k === "action" && v === "auto") {
       delete item.action;
+    } else if (k === "texture_sel") {
+      if (v === "custom") {
+        // Wait for the URL before touching the item.
+        this.history.pop();
+        this.customTextureFor = item.id;
+        this.renderProps();
+        return;
+      }
+      this.customTextureFor = undefined;
+      if (v === undefined) delete item.texture;
+      else item.texture = v;
+    } else if (k === "texture_url") {
+      if (v) item.texture = v;
+      else delete item.texture;
     } else if (v === undefined) {
       delete item[k];
     } else {
@@ -1078,6 +1169,8 @@ export class FloorplanCardEditor extends HTMLElement {
         parts.push(this.measure(w.x1, w.y1, w.x2, w.y2, w.thickness ?? defT));
         parts.push(handle(w.x1, w.y1, `data-kind="wall-end" data-id="${w.id}" data-end="1"`));
         parts.push(handle(w.x2, w.y2, `data-kind="wall-end" data-id="${w.id}" data-end="2"`));
+        parts.push(`<text x="${w.x1 + px(12)}" y="${w.y1 - px(12)}" class="end-label" font-size="${px(12)}">A</text>`);
+        parts.push(`<text x="${w.x2 + px(12)}" y="${w.y2 - px(12)}" class="end-label" font-size="${px(12)}">E</text>`);
       }
     } else if (sel?.kind === "room") {
       const r = this.fp.rooms.find((x) => x.id === sel.id);
@@ -1173,7 +1266,7 @@ label.check input { width: auto; }
 .toolbar .snap { flex-direction: row; align-items: center; gap: 4px; }
 .toolbar .snap input { width: auto; }
 .hint { font-size: 12px; color: var(--secondary-text-color); min-height: 1.4em; margin-bottom: 4px; }
-.canvas { position: relative; height: 420px; border: 1px solid var(--divider-color, #ccc); border-radius: 8px; overflow: hidden; outline: none; background: var(--secondary-background-color, #fafafa); touch-action: none; }
+.canvas { position: relative; height: clamp(420px, 62vh, 820px); border: 1px solid var(--divider-color, #ccc); border-radius: 8px; overflow: hidden; outline: none; background: var(--secondary-background-color, #fafafa); touch-action: none; }
 .canvas:focus-visible { border-color: var(--primary-color, #03a9f4); }
 .canvas svg { width: 100%; height: 100%; display: block; user-select: none; }
 .canvas svg.drawing { cursor: crosshair; }
@@ -1197,7 +1290,10 @@ label.check input { width: auto; }
 .draft-pt, .cursor { fill: var(--primary-color, #03a9f4); pointer-events: none; }
 .draft-rect { fill: rgba(3,169,244,.12); stroke: var(--primary-color, #03a9f4); pointer-events: none; }
 .measure { text-anchor: middle; dominant-baseline: middle; fill: var(--primary-color, #03a9f4); font-weight: 600; pointer-events: none; paint-order: stroke; stroke: var(--secondary-background-color, #fafafa); stroke-width: 3px; }
-.pane-3d .viewer3d { height: 420px; border: 1px solid var(--divider-color, #ccc); border-radius: 8px; overflow: hidden; }
+.pane-3d .viewer3d { height: clamp(420px, 62vh, 820px); border: 1px solid var(--divider-color, #ccc); border-radius: 8px; overflow: hidden; }
+.tabs .sep { flex: 1; }
+.end-label { fill: var(--primary-color, #03a9f4); font-weight: 700; pointer-events: none; paint-order: stroke; stroke: var(--secondary-background-color, #fafafa); stroke-width: 3px; }
+.note { font-size: 12px; color: var(--secondary-text-color); }
 .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .props { margin-top: 10px; padding: 10px; border: 1px solid var(--divider-color, #ccc); border-radius: 8px; }
 .props .empty { font-size: 13px; color: var(--secondary-text-color); }
