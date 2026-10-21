@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Etage löschen, „Alles löschen“ und Import-Fehler zeigen einen eigenen Dialog im Editor statt der Browser-Meldung.
+- Klick, Doppelklick und Halten funktionieren auch auf dem Label über einer Hitbox.
+
 ## 0.4.0
 
 - **Etagen:** beliebig viele Stockwerke anlegen, benennen und löschen. Im Editor wird die Etage darunter blass eingeblendet. Auf der Karte schaltet man oben links zwischen den Etagen um.

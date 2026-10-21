@@ -418,7 +418,7 @@ export class FloorplanCardEditor extends HTMLElement {
       this.commit();
       this.renderFloors();
     });
-    edit.querySelector("[data-floor-del]")!.addEventListener("click", () => this.deleteFloor());
+    edit.querySelector("[data-floor-del]")!.addEventListener("click", () => void this.deleteFloor());
   }
 
   private switchFloor(i: number): void {
@@ -441,10 +441,11 @@ export class FloorplanCardEditor extends HTMLElement {
     this.switchFloor(this.floors.length - 1);
   }
 
-  private deleteFloor(): void {
+  private async deleteFloor(): Promise<void> {
     if (this.floors.length < 2) return;
     const f = this.floors[this.floorIdx];
-    if (!confirm(`Etage „${f.name}“ mit allem, was darauf gezeichnet ist, löschen?`)) return;
+    const ok = await this.ask("Etage löschen?", `„${f.name}“ wird mit allem, was darauf gezeichnet ist, gelöscht. Mit Rückgängig (Strg+Z) lässt sich das zurückholen.`, "Löschen");
+    if (!ok) return;
     this.snapshot();
     this.floors.splice(this.floorIdx, 1);
     this.floorIdx = Math.max(0, this.floorIdx - 1);
@@ -498,7 +499,8 @@ export class FloorplanCardEditor extends HTMLElement {
       case "floor-add":
         return this.addFloor();
       case "floor-del":
-        return this.deleteFloor();
+        void this.deleteFloor();
+        return;
       case "cam-save":
         if (!this.viewer) return;
         this.config = { ...this.config, camera: this.viewer.getCamera() };
@@ -534,19 +536,61 @@ export class FloorplanCardEditor extends HTMLElement {
           this.fitView();
           this.render();
         } catch (err) {
-          alert(`Ungültiges JSON: ${(err as Error).message}`);
+          void this.ask("Import nicht möglich", `Ungültiges JSON: ${(err as Error).message}`);
         }
         return;
       }
       case "clear":
-        if (!confirm(this.floors.length > 1 ? `Wirklich den Grundriss von „${this.floors[this.floorIdx].name}“ löschen?` : "Wirklich den kompletten Grundriss löschen?")) return;
-        this.snapshot();
-        this.fp = this.floors[this.floorIdx].floorplan = normalizeFloorplan(undefined);
-        this.sel = undefined;
-        this.commit();
-        this.render();
+        void this.clearPlan();
         return;
     }
+  }
+
+  private async clearPlan(): Promise<void> {
+    const text =
+      this.floors.length > 1
+        ? `Alle Wände, Räume, Türen, Fenster und Hitboxen von „${this.floors[this.floorIdx].name}“ werden gelöscht.`
+        : "Alle Wände, Räume, Türen, Fenster und Hitboxen werden gelöscht.";
+    if (!(await this.ask("Grundriss löschen?", text, "Alles löschen"))) return;
+    this.snapshot();
+    this.fp = this.floors[this.floorIdx].floorplan = normalizeFloorplan(undefined);
+    this.sel = undefined;
+    this.commit();
+    this.render();
+  }
+
+  /**
+   * Confirmation inside the editor instead of the browser's confirm()/alert().
+   * Without `confirmLabel` it is a plain notice with a single OK button.
+   */
+  private ask(title: string, text: string, confirmLabel?: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const dlg = document.createElement("dialog");
+      dlg.className = "ask";
+      dlg.innerHTML = `
+        <h4>${esc(title)}</h4>
+        <p>${esc(text)}</p>
+        <div class="ask-actions">
+          ${confirmLabel ? `<button data-r="0">Abbrechen</button><button data-r="1" class="danger-fill">${esc(confirmLabel)}</button>` : `<button data-r="0" class="on">OK</button>`}
+        </div>`;
+      let result = false;
+      // Keep Esc & co. to this dialog; otherwise HA's own card dialog would react as well.
+      dlg.addEventListener("keydown", (ev) => ev.stopPropagation());
+      dlg.addEventListener("click", (ev) => {
+        const b = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-r]");
+        if (b) {
+          result = b.dataset.r === "1";
+          dlg.close();
+        } else if (ev.target === dlg) dlg.close(); // click on the backdrop
+      });
+      dlg.addEventListener("close", () => {
+        dlg.remove();
+        resolve(result);
+      });
+      this.root.appendChild(dlg);
+      dlg.showModal();
+      dlg.querySelector<HTMLButtonElement>(confirmLabel ? 'button[data-r="0"]' : "button")?.focus();
+    });
   }
 
   private showTab(tab: Tab): void {
@@ -1761,6 +1805,18 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .stats span { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--fp-surface-2); color: var(--fp-muted); }
 .stats b { color: var(--fp-text); }
+
+dialog.ask {
+  border: 1px solid var(--fp-border); border-radius: 16px; padding: 20px 22px 16px; width: min(420px, calc(100vw - 32px));
+  background: var(--fp-surface); color: var(--fp-text); box-shadow: 0 12px 40px rgba(0,0,0,.35);
+}
+dialog.ask::backdrop { background: rgba(0,0,0,.45); }
+dialog.ask h4 { margin: 0 0 8px; font-size: 17px; font-weight: 600; }
+dialog.ask p { margin: 0 0 18px; font-size: 14px; line-height: 1.45; color: var(--fp-muted); }
+.ask-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ask-actions button { padding: 8px 14px; }
+button.danger-fill { background: var(--error-color, #db4437); border-color: transparent; color: #fff; }
+button.danger-fill:hover { filter: brightness(1.1); border-color: transparent; }
 
 .combo { position: relative; }
 .combo-list {
