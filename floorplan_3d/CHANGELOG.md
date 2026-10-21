@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- Großansicht füllt das Fenster jetzt genau aus: Das Editor-Fenster scrollt nicht mehr, 2D- und 3D-Ansicht nutzen die volle Höhe, nur die linke Spalte scrollt bei Bedarf.
+- Das Fenster ist höher und hat oben und unten den gleichen Abstand zum Bildschirmrand.
+- Der Großansicht-Button sitzt in der linken Spalte.
+- Überarbeitete Optik: Abschnitte als Karten, Werkzeugleiste mit Symbolen, Umschalter für 2D/3D.
+- „Ganze Dashboard-Seite“: kein Scrollbalken mehr durch den Seitenrand unter der Karte.
+- Beschriftungen der 3D-Ansicht liegen nicht mehr über Dialogen von Home Assistant.
+
 ## 0.3.2
 
 - Neue Option „Ganze Dashboard-Seite ausfüllen“: Die Karte nimmt die komplette Bildschirmhöhe ein, ideal als einzige Karte in einer Panel-Ansicht.

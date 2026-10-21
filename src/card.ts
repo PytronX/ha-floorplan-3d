@@ -28,7 +28,7 @@ export class FloorplanCard extends HTMLElement {
         ha-card { overflow: hidden; position: relative; }
         .title { padding: 12px 16px 0; font-size: 1.2em; font-weight: 500; color: var(--primary-text-color); }
         .title:empty { display: none; }
-        .stage { position: relative; width: 100%; }
+        .stage { position: relative; width: 100%; isolation: isolate; }
         :host(.full-page) ha-card { border-radius: 0; border: none; }
         ha-card:fullscreen { border-radius: 0; background: var(--primary-background-color, #111); }
         .controls { position: absolute; right: 8px; bottom: 8px; z-index: 2; display: flex; gap: 6px; }
@@ -80,6 +80,14 @@ export class FloorplanCard extends HTMLElement {
       height = cfg.height ?? DEFAULTS.height;
     }
     this.stage.style.height = `${Math.round(height)}px`;
+    if (cfg.full_page && document.fullscreenElement !== card) {
+      // Padding below the card (view, sections) would still make the page scroll: trim it off.
+      const doc = document.scrollingElement ?? document.documentElement;
+      const overflow = doc.scrollHeight - window.innerHeight;
+      if (overflow > 0 && overflow < 200) {
+        this.stage.style.height = `${Math.max(300, Math.round(height - overflow))}px`;
+      }
+    }
   }
 
   setConfig(config: CardConfig): void {
