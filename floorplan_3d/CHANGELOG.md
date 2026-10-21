@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Großansicht im aktuellen HA-Dialog: oben und unten gleich viel Abstand, linke und rechte Spalte reichen bis ganz nach unten.
+- In jedem Zeichenwerkzeug kann man mit gedrückter linker Maustaste die Ansicht verschieben. Rechtecke (Raum + Wände, Hitbox) entstehen jetzt durch zwei Klicks auf gegenüberliegende Ecken, Räume durch Klicken der Eckpunkte.
+- Raumflächen in m²: im Grundriss, in der 3D-Ansicht, in den Raum-Eigenschaften und als Gesamtfläche. Ein-/ausschaltbar mit „Quadratmeter anzeigen“ (`show_area`).
+- „Ganze Dashboard-Seite ausfüllen“ ist nur noch anklickbar, wenn die Ansicht den Typ „Panel (einzelne Karte)“ hat.
+
 ## 0.3.3
 
 - Großansicht füllt das Fenster jetzt genau aus: Das Editor-Fenster scrollt nicht mehr, 2D- und 3D-Ansicht nutzen die volle Höhe, nur die linke Spalte scrollt bei Bedarf.

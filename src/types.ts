@@ -102,6 +102,8 @@ export interface CardConfig {
   hitbox_mode?: HitboxMode;
   show_room_names?: boolean;
   show_labels?: boolean;
+  /** Show each room's floor area in m² (default on). */
+  show_area?: boolean;
   camera?: CameraConfig;
   background?: Background;
   floorplan: Floorplan;
@@ -146,4 +148,19 @@ export function normalizeFloorplan(fp: Partial<Floorplan> | undefined): Floorpla
 
 export function uid(prefix: string): string {
   return prefix + Math.random().toString(36).slice(2, 8);
+}
+
+/** Floor area of a room polygon (points in cm) in m². */
+export function roomArea(points: [number, number][]): number {
+  let a = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x0, y0] = points[i];
+    const [x1, y1] = points[(i + 1) % points.length];
+    a += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(a) / 2 / 10000;
+}
+
+export function formatArea(m2: number): string {
+  return `${m2.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m²`;
 }

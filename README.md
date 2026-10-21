@@ -10,11 +10,12 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
 
 - **3D-Ansicht** (Three.js): Wände (auch mit Dachschräge), Türen, Fenster und Räume mit Farben oder Texturen; drehen, zoomen, verschieben mit Maus oder Touch.
 - **Eingebauter Editor** im normalen Karten-Editor von HA:
-  - *Raum + Wände*: Rechteck aufziehen → vier Wände und ein Raum.
+  - *Raum + Wände*: zwei gegenüberliegende Ecken anklicken → vier Wände und ein Raum.
   - *Wand*: Wandzüge Punkt für Punkt zeichnen (Raster- und Eckpunkt-Fang, Längenanzeige).
-  - *Raum*: Bodenflächen als Rechteck oder Polygon.
+  - *Raum*: Bodenflächen als Polygon (Eckpunkte klicken), mit Flächenanzeige in m².
   - *Tür / Fenster*: auf eine Wand klicken, danach entlang der Wand verschieben.
-  - *Hitbox*: Rechteck aufziehen, Entität, Höhe, Icon und Klick-Aktion festlegen.
+  - *Hitbox*: zwei Ecken anklicken, Entität, Höhe, Icon und Klick-Aktion festlegen.
+  - In jedem Werkzeug: linke Maustaste gedrückt halten und ziehen = Ansicht verschieben.
   - Verschieben, Eckpunkte ziehen (verbundene Wände ziehen mit), Rückgängig/Wiederholen, Maße direkt eingeben.
   - Wandhöhe am Anfang und Ende getrennt einstellbar (Dachschrägen).
   - Texturen für Wände und Böden: eingebaut (Parkett, Fliesen, Teppich, Backstein, Beton, Rauputz, Tapete) oder eigenes Bild, z. B. `/local/texturen/holz.jpg`.
@@ -70,6 +71,7 @@ floor_texture: builtin:wood     # optional, Standard für alle Böden
 hitbox_mode: visible     # visible | hover | hidden
 show_labels: true
 show_room_names: true
+show_area: true          # Raumfläche in m² anzeigen
 camera:                  # optional, wird über den Editor gesetzt
   position: [4, 8, 9]
   target: [4, 0, 3]
