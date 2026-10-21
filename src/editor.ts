@@ -1,7 +1,9 @@
 import { resolveAction } from "./ha";
 import {
   DEFAULTS,
+  formatArea,
   normalizeFloorplan,
+  roomArea,
   uid,
   type CardConfig,
   type Floorplan,
@@ -28,22 +30,21 @@ interface Vec {
 }
 
 type Drag =
-  | { type: "pan"; start: Vec; vb: Vec; moved: boolean }
+  | { type: "pan"; start: Vec; vb: Vec; moved: boolean; click?: Vec }
   | { type: "move"; sel: Selection; start: Vec; orig: string; moved: boolean }
   | { type: "endpoint"; ends: { wall: Wall; end: 1 | 2 }[]; moved: boolean }
   | { type: "vertex"; room: Room; idx: number; moved: boolean }
   | { type: "opening"; op: Opening; wall: Wall; moved: boolean }
-  | { type: "resize"; hs: Hotspot; anchor: Vec; moved: boolean }
-  | { type: "rect"; tool: "box" | "room" | "hotspot"; start: Vec; end: Vec };
+  | { type: "resize"; hs: Hotspot; anchor: Vec; moved: boolean };
 
 const TOOLS: { id: Tool; label: string; icon: string; hint: string }[] = [
   { id: "select", label: "Auswählen", icon: "M7 2l12 11.2-5.8.5 3.3 7.3-2.2 1-3.2-7.4L7 18.5z", hint: "Element anklicken zum Bearbeiten, ziehen zum Verschieben. Leere Fläche ziehen = Ansicht verschieben, Mausrad = Zoom." },
-  { id: "box", label: "Raum + Wände", icon: "M3 3h18v18H3zm2 2v14h14V5z", hint: "Rechteck aufziehen: erzeugt vier Wände und einen Raum." },
-  { id: "wall", label: "Wand", icon: "M3 16h18v4H3zm0-6h8v4H3zm10 0h8v4h-8zM3 4h18v4H3z", hint: "Klicken setzt Wandpunkte. Doppelklick, Rechtsklick oder Esc beendet die Wand." },
-  { id: "room", label: "Raum", icon: "M12 3 2 12h3v8h14v-8h3z", hint: "Rechteck aufziehen oder Eckpunkte klicken. Klick auf den ersten Punkt schließt den Raum." },
-  { id: "door", label: "Tür", icon: "M8 3h10v18h-2V5H8v16H6V3zm2 8h2v2h-2z", hint: "Auf eine Wand klicken, um eine Tür einzusetzen." },
-  { id: "window", label: "Fenster", icon: "M4 4h16v16H4zm2 2v5h5V6zm7 0v5h5V6zm-7 7v5h5v-5zm7 0v5h5v-5z", hint: "Auf eine Wand klicken, um ein Fenster einzusetzen." },
-  { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Rechteck aufziehen und danach eine Entität zuweisen." },
+  { id: "box", label: "Raum + Wände", icon: "M3 3h18v18H3zm2 2v14h14V5z", hint: "Zwei gegenüberliegende Ecken anklicken: erzeugt vier Wände und einen Raum. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "wall", label: "Wand", icon: "M3 16h18v4H3zm0-6h8v4H3zm10 0h8v4h-8zM3 4h18v4H3z", hint: "Klicken setzt Wandpunkte. Doppelklick, Rechtsklick oder Esc beendet die Wand. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "room", label: "Raum", icon: "M12 3 2 12h3v8h14v-8h3z", hint: "Eckpunkte klicken. Klick auf den ersten Punkt, Doppelklick oder Enter schließt den Raum. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "door", label: "Tür", icon: "M8 3h10v18h-2V5H8v16H6V3zm2 8h2v2h-2z", hint: "Auf eine Wand klicken, um eine Tür einzusetzen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "window", label: "Fenster", icon: "M4 4h16v16H4zm2 2v5h5V6zm7 0v5h5V6zm-7 7v5h5v-5zm7 0v5h5v-5z", hint: "Auf eine Wand klicken, um ein Fenster einzusetzen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Zwei gegenüberliegende Ecken anklicken (oder einmal doppelt für 50×50 cm), danach eine Entität zuweisen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
 ];
 
 const esc = (s: string) =>
@@ -61,6 +62,8 @@ export class FloorplanCardEditor extends HTMLElement {
   private tool: Tool = "select";
   private sel?: Selection;
   private draft: Vec[] = [];
+  /** First corner of a rectangle being placed with the box / hitbox tool. */
+  private rectStart?: Vec;
   private cursor?: Vec;
   private drag?: Drag;
   private history: string[] = [];
@@ -81,6 +84,33 @@ export class FloorplanCardEditor extends HTMLElement {
   constructor() {
     super();
     this.root = this.attachShadow({ mode: "open" });
+  }
+
+  private _lovelace?: { views?: { path?: string; type?: string }[] };
+
+  /** Set by Home Assistant's card editor: the whole dashboard config. */
+  set lovelace(lovelace: { views?: { path?: string; type?: string }[] } | undefined) {
+    this._lovelace = lovelace;
+    if (this.built) this.renderGeneral();
+  }
+
+  get lovelace() {
+    return this._lovelace;
+  }
+
+  /** Whether the view being edited is a panel view; undefined when that cannot be told. */
+  private isPanelView(): boolean | undefined {
+    const views = this._lovelace?.views;
+    if (!views?.length) return undefined;
+    let seg = "";
+    try {
+      seg = decodeURIComponent(location.pathname.split("/")[2] ?? "");
+    } catch {
+      /* malformed URL */
+    }
+    let view = views.find((v) => v.path !== undefined && v.path === seg);
+    if (!view && /^\d*$/.test(seg)) view = views[seg === "" ? 0 : Number(seg)];
+    return view ? view.type === "panel" : undefined;
   }
 
   set hass(hass: Hass) {
@@ -196,6 +226,7 @@ export class FloorplanCardEditor extends HTMLElement {
   private setTool(t: Tool): void {
     this.tool = t;
     this.draft = [];
+    this.rectStart = undefined;
     this.drag = undefined;
     this.root.querySelectorAll<HTMLButtonElement>(".tool").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
     this.hintEl.textContent = TOOLS.find((x) => x.id === t)!.hint;
@@ -439,7 +470,8 @@ export class FloorplanCardEditor extends HTMLElement {
         </label>
         <label class="check"><input type="checkbox" data-k="show_labels" ${c.show_labels !== false ? "checked" : ""}> Zustands-Labels anzeigen</label>
         <label class="check"><input type="checkbox" data-k="show_room_names" ${c.show_room_names !== false ? "checked" : ""}> Raumnamen anzeigen</label>
-        <label class="check wide"><input type="checkbox" data-k="full_page" ${c.full_page ? "checked" : ""}> Ganze Dashboard-Seite ausfüllen (für Panel-Ansicht)</label>
+        <label class="check"><input type="checkbox" data-k="show_area" ${c.show_area !== false ? "checked" : ""}> Quadratmeter anzeigen</label>
+        ${this.fullPageField()}
       </div>`;
     el.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-k]").forEach((input) =>
       input.addEventListener("change", () => {
@@ -457,6 +489,15 @@ export class FloorplanCardEditor extends HTMLElement {
         this.render2d();
       })
     );
+  }
+
+  private fullPageField(): string {
+    const c = this.config;
+    const blocked = this.isPanelView() === false && !c.full_page;
+    return `<label class="check wide ${blocked ? "disabled" : ""}" ${blocked ? `title="Nur möglich, wenn die Ansicht den Typ „Panel (einzelne Karte)“ hat."` : ""}>
+        <input type="checkbox" data-k="full_page" ${c.full_page ? "checked" : ""} ${blocked ? "disabled" : ""}>
+        <span>Ganze Dashboard-Seite ausfüllen${blocked ? `<small>Nur in Ansichtstyp „Panel (einzelne Karte)“. Ansicht bearbeiten → Ansichtstyp ändern.</small>` : ""}</span>
+      </label>`;
   }
 
   private builtinOptions(cur: string | undefined): string {
@@ -568,16 +609,22 @@ export class FloorplanCardEditor extends HTMLElement {
     scroller.scrollTop = 0;
   }
 
+  /**
+   * The dialog's own scrolling body. Inside the HA card dialog that is the outermost scroller
+   * below the dialog: inner ones (like the editor column) only grow with their content.
+   */
   private findScroller(): HTMLElement | undefined {
+    let found: HTMLElement | undefined;
     let node: Node | null = this.assignedSlot ?? this.parentNode ?? null;
     while (node) {
       if (node instanceof HTMLElement) {
+        if (node.localName === "hui-dialog-edit-card") break;
         const oy = getComputedStyle(node).overflowY;
-        if (oy === "auto" || oy === "scroll") return node;
+        if (oy === "auto" || oy === "scroll") found = node;
       }
       node = (node as HTMLElement).assignedSlot ?? node.parentNode ?? (node as ShadowRoot).host ?? null;
     }
-    return document.scrollingElement as HTMLElement | undefined;
+    return found ?? (document.scrollingElement as HTMLElement | undefined);
   }
 
   private onWindowResize = () => {
@@ -625,7 +672,7 @@ export class FloorplanCardEditor extends HTMLElement {
     if (!this.sel || !item) {
       const n = this.fp;
       el.innerHTML = `<h3>Auswahl</h3><div class="empty">Klicke im Grundriss auf ein Element, um es hier zu bearbeiten.</div>
-        <div class="stats"><span><b>${n.walls.length}</b> Wände</span><span><b>${n.rooms.length}</b> Räume</span><span><b>${n.openings.length}</b> Türen/Fenster</span><span><b>${n.hotspots.length}</b> Hitboxen</span></div>`;
+        <div class="stats"><span><b>${n.walls.length}</b> Wände</span><span><b>${n.rooms.length}</b> Räume</span><span><b>${n.openings.length}</b> Türen/Fenster</span><span><b>${n.hotspots.length}</b> Hitboxen</span><span><b>${formatArea(n.rooms.reduce((a, r) => a + (r.points.length >= 3 ? roomArea(r.points) : 0), 0))}</b> gesamt</span></div>`;
       return;
     }
     const num = (k: string, label: string, v: number | undefined, ph = "") =>
@@ -667,6 +714,7 @@ export class FloorplanCardEditor extends HTMLElement {
         title = "Raum";
         body =
           txt("name", "Name", r.name) +
+          `<label>Fläche<input value="${r.points.length >= 3 ? formatArea(roomArea(r.points)) : "–"}" readonly tabindex="-1"></label>` +
           color("color", "Bodenfarbe", r.color, this.config.floor_color ?? DEFAULTS.floor_color) +
           this.textureFields(r.id, r.texture, r.texture_scale, this.config.floor_texture);
         break;
@@ -883,6 +931,18 @@ export class FloorplanCardEditor extends HTMLElement {
         capture();
         return;
       }
+      default: {
+        // Drawing tools act on release; dragging instead pans the view.
+        this.drag = { type: "pan", start: { x: ev.clientX, y: ev.clientY }, vb: { x: this.vb.x, y: this.vb.y }, moved: false, click: p };
+        capture();
+        return;
+      }
+    }
+  }
+
+  /** A click (press and release without dragging) with one of the drawing tools. */
+  private toolClick(p: Vec): void {
+    switch (this.tool) {
       case "wall": {
         const s = this.snap(p);
         if (this.draft.length) {
@@ -907,20 +967,22 @@ export class FloorplanCardEditor extends HTMLElement {
             return;
           }
         }
-        if (this.draft.length) {
-          this.draft.push(s);
-          this.render2d();
-          return;
-        }
-        this.drag = { type: "rect", tool: "room", start: s, end: s };
-        capture();
+        this.draft.push(s);
+        this.render2d();
         return;
       }
       case "box":
       case "hotspot": {
         const s = this.snap(p);
-        this.drag = { type: "rect", tool: this.tool, start: s, end: s };
-        capture();
+        if (!this.rectStart) {
+          this.rectStart = s;
+          this.cursor = s;
+          this.render2d();
+          return;
+        }
+        const start = this.rectStart;
+        this.rectStart = undefined;
+        this.finishRect(this.tool, start, s);
         return;
       }
       case "door":
@@ -972,6 +1034,7 @@ export class FloorplanCardEditor extends HTMLElement {
     }
     switch (d.type) {
       case "pan": {
+        if (!d.moved && Math.hypot(ev.clientX - d.start.x, ev.clientY - d.start.y) < 4) return;
         const s = this.scale;
         this.autoFit = false;
         this.vb.x = d.vb.x - (ev.clientX - d.start.x) / s;
@@ -1053,10 +1116,6 @@ export class FloorplanCardEditor extends HTMLElement {
         }
         break;
       }
-      case "rect": {
-        d.end = this.snap(p);
-        break;
-      }
     }
     this.render2d();
   }
@@ -1077,15 +1136,13 @@ export class FloorplanCardEditor extends HTMLElement {
     this.drag = undefined;
     if (!d) return;
     if (d.type === "pan") {
-      if (!d.moved && this.sel) {
+      if (d.moved) return;
+      if (d.click) this.toolClick(d.click);
+      else if (this.sel) {
         this.sel = undefined;
         this.renderProps();
         this.render2d();
       }
-      return;
-    }
-    if (d.type === "rect") {
-      this.finishRect(d);
       return;
     }
     if (d.moved) {
@@ -1096,24 +1153,18 @@ export class FloorplanCardEditor extends HTMLElement {
     }
   }
 
-  private finishRect(d: Extract<Drag, { type: "rect" }>): void {
-    const x0 = Math.min(d.start.x, d.end.x);
-    const y0 = Math.min(d.start.y, d.end.y);
-    const x1 = Math.max(d.start.x, d.end.x);
-    const y1 = Math.max(d.start.y, d.end.y);
+  private finishRect(tool: "box" | "hotspot", start: Vec, end: Vec): void {
+    const x0 = Math.min(start.x, end.x);
+    const y0 = Math.min(start.y, end.y);
+    const x1 = Math.max(start.x, end.x);
+    const y1 = Math.max(start.y, end.y);
     const big = x1 - x0 >= 20 && y1 - y0 >= 20;
 
-    if (d.tool === "room" && !big) {
-      // A click instead of a drag starts a polygon.
-      this.draft = [d.start];
-      this.render2d();
-      return;
-    }
     this.snapshot();
-    if (d.tool === "hotspot") {
+    if (tool === "hotspot") {
       const w = big ? x1 - x0 : 50;
       const dd = big ? y1 - y0 : 50;
-      const h: Hotspot = { id: uid("h"), x: big ? x0 + w / 2 : d.start.x, y: big ? y0 + dd / 2 : d.start.y, z: 0, w, d: dd, h: 80 };
+      const h: Hotspot = { id: uid("h"), x: big ? x0 + w / 2 : start.x, y: big ? y0 + dd / 2 : start.y, z: 0, w, d: dd, h: 80 };
       this.fp.hotspots.push(h);
       this.sel = { kind: "hotspot", id: h.id };
     } else if (!big) {
@@ -1123,7 +1174,7 @@ export class FloorplanCardEditor extends HTMLElement {
       const pts: Point[] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
       const room: Room = { id: uid("r"), name: `Raum ${this.fp.rooms.length + 1}`, points: pts };
       this.fp.rooms.push(room);
-      if (d.tool === "box") {
+      if (tool === "box") {
         for (let i = 0; i < 4; i++) {
           const [ax, ay] = pts[i];
           const [bx, by] = pts[(i + 1) % 4];
@@ -1158,6 +1209,7 @@ export class FloorplanCardEditor extends HTMLElement {
   private finishDraft(): void {
     if (this.tool === "room" && this.draft.length >= 3) return this.closeRoom();
     this.draft = [];
+    this.rectStart = undefined;
     this.render2d();
   }
 
@@ -1176,7 +1228,7 @@ export class FloorplanCardEditor extends HTMLElement {
     const tag = (ev.composedPath()[0] as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (ev.key === "Escape") {
-      if (this.draft.length) this.finishDraft();
+      if (this.draft.length || this.rectStart) this.finishDraft();
       else if (this.tool !== "select") this.setTool("select");
       else {
         this.sel = undefined;
@@ -1230,9 +1282,13 @@ export class FloorplanCardEditor extends HTMLElement {
       parts.push(
         `<polygon data-kind="room" data-id="${r.id}" points="${pts}" fill="${esc(r.color ?? this.config.floor_color ?? DEFAULTS.floor_color)}" fill-opacity="0.45" class="room ${isSel("room", r.id) ? "sel" : ""}" stroke-width="${px(isSel("room", r.id) ? 2 : 0)}"/>`
       );
-      if (r.name) {
+      const showArea = this.config.show_area !== false && r.points.length >= 3;
+      if (r.name || showArea) {
         const [cx, cy] = centroid(r.points);
-        parts.push(`<text x="${cx}" y="${cy}" class="room-name" font-size="${px(13)}">${esc(r.name)}</text>`);
+        const dy = r.name && showArea ? px(8) : 0;
+        if (r.name) parts.push(`<text x="${cx}" y="${cy - dy}" class="room-name" font-size="${px(13)}">${esc(r.name)}</text>`);
+        if (showArea)
+          parts.push(`<text x="${cx}" y="${cy + dy}" class="room-area" font-size="${px(11)}">${formatArea(roomArea(r.points))}</text>`);
       }
     }
 
@@ -1320,8 +1376,9 @@ export class FloorplanCardEditor extends HTMLElement {
       if (c) parts.push(this.measure(last.x, last.y, c.x, c.y, this.tool === "wall" ? defT : 0));
       for (const p of this.draft) parts.push(`<circle cx="${p.x}" cy="${p.y}" r="${px(4)}" class="draft-pt"/>`);
     }
-    if (this.drag?.type === "rect") {
-      const { start, end } = this.drag;
+    if (this.rectStart && c) {
+      const start = this.rectStart;
+      const end = c;
       const x = Math.min(start.x, end.x);
       const y = Math.min(start.y, end.y);
       const w = Math.abs(end.x - start.x);
@@ -1331,7 +1388,7 @@ export class FloorplanCardEditor extends HTMLElement {
         `<text x="${x + w / 2}" y="${y - px(8)}" class="measure" font-size="${px(12)}">${Math.round(w)} × ${Math.round(h)} cm</text>`
       );
     }
-    if (c && this.tool !== "select" && !this.drag) {
+    if (c && this.tool !== "select" && !this.drag && !this.rectStart) {
       if (this.tool === "door" || this.tool === "window") {
         const hit = this.nearestWall(c);
         if (hit) {
@@ -1375,21 +1432,27 @@ const WIDE_DIALOG_CSS = `
 ha-dialog, ha-md-dialog, ha-wa-dialog, ha-adaptive-dialog {
   --mdc-dialog-min-width: 98vw !important; --mdc-dialog-max-width: 98vw !important;
   --mdc-dialog-min-height: 96vh !important; --mdc-dialog-max-height: 96vh !important;
-  --dialog-surface-position: fixed !important; --dialog-surface-top: 2vh !important; --dialog-surface-margin-top: 0px !important;
+  --dialog-surface-position: fixed !important; --dialog-surface-top: 0px !important; --dialog-surface-margin-top: 2vh !important;
   --vertical-align-dialog: flex-start !important;
+  --ha-dialog-width-full: 98vw !important; --ha-dialog-max-width: 98vw !important;
   --ha-dialog-width-md: 98vw !important; --ha-dialog-width-lg: 98vw !important;
   --ha-dialog-min-height: 96vh !important; --ha-dialog-max-height: 96vh !important;
   --md-dialog-container-min-inline-size: 98vw !important; --md-dialog-container-max-inline-size: 98vw !important;
   --md-dialog-container-min-block-size: 96vh !important; --md-dialog-container-max-block-size: 96vh !important;
 }
 .element-preview { display: none !important; }
-.element-editor { width: 100% !important; max-width: none !important; flex: 1 1 100% !important; }
+.content { max-height: none !important; }
+.element-editor { width: 100% !important; max-width: none !important; flex: 1 1 100% !important; overflow: visible !important; }
 `;
 
-/** Injected into the dialog element's own shadow root so the surface really is 96vh tall. */
+/** Injected into the dialog element's own shadow root so the surface really is 96vh tall, 2vh from the top. */
 const WIDE_SURFACE_CSS = `
-.mdc-dialog__surface, dialog, .dialog, [part~="dialog"], [part~="panel"] {
-  height: 96vh !important; max-height: 96vh !important;
+.mdc-dialog__surface, [part~="dialog"], [part~="panel"] {
+  height: 96vh !important; min-height: 96vh !important; max-height: 96vh !important;
+}
+wa-dialog::part(dialog) {
+  height: 96vh !important; min-height: 96vh !important; max-height: 96vh !important;
+  margin-top: 2vh !important; margin-bottom: 2vh !important;
 }
 `;
 
@@ -1424,7 +1487,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--f
 input[type=color] { padding: 2px; height: 34px; cursor: pointer; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fp-muted); }
 label.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--fp-text); cursor: pointer; }
-label.check input { width: 16px; height: 16px; accent-color: var(--fp-accent); }
+label.check input { width: 16px; height: 16px; accent-color: var(--fp-accent); flex: none; }
+label.check span small { display: block; font-size: 11px; color: var(--fp-muted); margin-top: 2px; }
+label.check.disabled { cursor: not-allowed; color: var(--fp-muted); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .grid2 .wide { grid-column: 1 / -1; }
 textarea { font-family: ui-monospace, monospace; font-size: 12px; }
@@ -1494,6 +1559,7 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .grid-major { stroke: var(--divider-color, #bbb); }
 .room { stroke: var(--fp-accent); cursor: pointer; }
 .room-name { text-anchor: middle; dominant-baseline: middle; fill: var(--fp-text); opacity: .6; pointer-events: none; font-weight: 600; }
+.room-area { text-anchor: middle; dominant-baseline: middle; fill: var(--fp-text); opacity: .55; pointer-events: none; }
 .wall { stroke: var(--fp-text); pointer-events: none; }
 .wall.sel { stroke: var(--fp-accent); }
 .hit { stroke: transparent; cursor: pointer; }

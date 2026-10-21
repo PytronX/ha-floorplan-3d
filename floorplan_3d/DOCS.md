@@ -12,14 +12,14 @@ Gab es den Ordner `www` vorher noch nicht, musst du Home Assistant **einmal neu 
 
 1. Dashboard öffnen → **Bearbeiten** → **Karte hinzufügen** → „**3D Floorplan Card**“.
 2. Im Editor zeichnen:
-   - **Raum + Wände**: Rechteck aufziehen → vier Wände und ein Raum.
+   - **Raum + Wände**: zwei gegenüberliegende Ecken anklicken → vier Wände und ein Raum.
    - **Wand**: Punkte klicken; Doppelklick, Rechtsklick oder `Esc` beendet.
-   - **Raum**: Rechteck aufziehen oder Eckpunkte klicken.
+   - **Raum**: Eckpunkte klicken; Klick auf den ersten Punkt schließt den Raum. Die Fläche in m² wird berechnet.
    - **Tür / Fenster**: auf eine Wand klicken, danach entlang der Wand verschieben.
-   - **Hitbox**: Rechteck aufziehen, Entität, Höhe und Klick-Aktion wählen.
+   - **Hitbox**: zwei Ecken anklicken, Entität, Höhe und Klick-Aktion wählen.
 3. **Speichern**.
 
-Bedienung im Editor: leere Fläche ziehen = verschieben, Mausrad = Zoom, `Entf` = löschen, `Strg+Z` = rückgängig.
+Bedienung im Editor: mit gedrückter linker Maustaste ziehen = verschieben (in jedem Werkzeug), Mausrad = Zoom, `Entf` = löschen, `Strg+Z` = rückgängig.
 
 ## Karte als ganze Dashboard-Seite
 

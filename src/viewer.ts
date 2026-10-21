@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { domainOf, formatState, friendlyName, isActive } from "./ha";
 import { TextureCache, defaultTextureSize } from "./textures";
-import { DEFAULTS, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
+import { DEFAULTS, formatArea, roomArea, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
 
 const CM = 0.01;
 const HITBOX_IDLE = 0x3fa7ff;
@@ -189,11 +189,19 @@ export class Viewer {
       mesh.position.y = 0.002;
       this.world.add(mesh);
 
-      if (cfg.show_room_names !== false && room.name) {
+      const showName = cfg.show_room_names !== false && !!room.name;
+      const showArea = cfg.show_area !== false && room.points.length >= 3;
+      if (showName || showArea) {
         const c = centroid(room.points);
         const el = document.createElement("div");
         el.className = "fp3d-room";
-        el.textContent = room.name;
+        if (showName) el.append(room.name!);
+        if (showArea) {
+          const area = document.createElement("span");
+          area.className = "area";
+          area.textContent = formatArea(roomArea(room.points));
+          el.append(area);
+        }
         const label = new CSS2DObject(el);
         label.position.set(c[0] * CM, 0.05, c[1] * CM);
         this.world.add(label);
@@ -583,5 +591,7 @@ export const VIEWER_STYLES = `
   font: 600 12px var(--paper-font-body1_-_font-family, system-ui, sans-serif);
   opacity: .65;
   text-shadow: 0 0 3px var(--card-background-color, #fff);
+  display: flex; flex-direction: column; align-items: center; text-align: center;
 }
+.fp3d-room .area { font-weight: 500; font-size: 11px; }
 `;
