@@ -15,6 +15,7 @@ import {
 import { BUILTIN_PREFIX, BUILTIN_TEXTURES, defaultTextureSize, textureLabel } from "./textures";
 import { Viewer, VIEWER_STYLES, centroid } from "./viewer";
 
+type Tab = "2d" | "3d" | "both";
 type Tool = "select" | "wall" | "box" | "room" | "door" | "window" | "hotspot";
 type Kind = "wall" | "opening" | "room" | "hotspot";
 interface Selection {
@@ -66,7 +67,7 @@ export class FloorplanCardEditor extends HTMLElement {
   private future: string[] = [];
   private vb = { x: -100, y: -100, w: 1100 };
   private snapEnabled = true;
-  private tab: "2d" | "3d" = "2d";
+  private tab: Tab = "2d";
   private viewer?: Viewer;
   private entityIds: string[] = [];
   private wide = false;
@@ -119,6 +120,14 @@ export class FloorplanCardEditor extends HTMLElement {
       this.renderGeneral();
       this.render();
     }
+    let wide = false;
+    try {
+      wide = localStorage.getItem(WIDE_KEY) === "1";
+    } catch {
+      /* storage unavailable */
+    }
+    // The dialog may still be assembling itself, so apply the remembered size a bit later.
+    if (wide) setTimeout(() => this.isConnected && this.toggleWide(true), 50);
   }
 
   // ------------------------------------------------------------------ state
@@ -195,15 +204,21 @@ export class FloorplanCardEditor extends HTMLElement {
 
   private build(): void {
     this.built = true;
+    this.lastCanvasWidth = 0;
     this.root.innerHTML = `
       <style>${EDITOR_STYLES}${VIEWER_STYLES}</style>
       <datalist id="entities"></datalist>
+      <button data-act="wide" class="wide-btn" title="Editor als großes Fenster anzeigen">
+        <svg viewBox="0 0 24 24"><path d="M3 3h7v2H6.4l4.3 4.3-1.4 1.4L5 6.4V10H3zm11 0h7v7h-2V6.4l-4.3 4.3-1.4-1.4L17.6 5H14zM3 14h2v3.6l4.3-4.3 1.4 1.4L6.4 19H10v2H3zm16 0h2v7h-7v-2h3.6l-4.3-4.3 1.4-1.4 4.3 4.3z"/></svg>
+        <span>Großansicht</span>
+      </button>
+      <div class="layout">
       <div class="general"></div>
+      <div class="main">
       <div class="tabs">
         <button data-tab="2d" class="on">Grundriss (2D)</button>
         <button data-tab="3d">3D-Vorschau</button>
-        <span class="sep"></span>
-        <button data-act="wide" class="wide-btn" title="Editor-Fenster verbreitern">⇔ Breiter</button>
+        <button data-tab="both">2D + 3D</button>
       </div>
       <div class="pane-2d">
         <div class="toolbar">
@@ -225,6 +240,7 @@ export class FloorplanCardEditor extends HTMLElement {
           <button data-act="cam-clear">Startansicht zurücksetzen</button>
         </div>
       </div>
+      </div>
       <div class="props"></div>
       <details class="extra">
         <summary>Hintergrundbild (zum Nachzeichnen)</summary>
@@ -234,7 +250,8 @@ export class FloorplanCardEditor extends HTMLElement {
         <summary>Import / Export (JSON)</summary>
         <textarea class="json" rows="8" spellcheck="false"></textarea>
         <div class="row"><button data-act="export">Aktuellen Grundriss anzeigen</button><button data-act="import">Importieren</button><button data-act="clear">Alles löschen</button></div>
-      </details>`;
+      </details>
+      </div>`;
 
     this.svg = this.root.querySelector(".canvas svg")!;
     this.propsEl = this.root.querySelector(".props")!;
@@ -250,7 +267,7 @@ export class FloorplanCardEditor extends HTMLElement {
       else el.addEventListener("click", () => this.action(act));
     });
     this.root.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) =>
-      b.addEventListener("click", () => this.showTab(b.dataset.tab as "2d" | "3d"))
+      b.addEventListener("click", () => this.showTab(b.dataset.tab as Tab))
     );
 
     const canvas = this.root.querySelector<HTMLDivElement>(".canvas")!;
@@ -268,10 +285,35 @@ export class FloorplanCardEditor extends HTMLElement {
     });
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("keydown", (e) => this.onKey(e));
-    new ResizeObserver(() => this.render2d()).observe(canvas);
+    new ResizeObserver(() => this.onCanvasResize()).observe(canvas);
 
     this.renderEntityList();
   }
+
+  private lastCanvasWidth = 0;
+
+  /** Keep the drawing at the same zoom level (and centred) when the canvas changes size. */
+  private onCanvasResize(): void {
+    const w = this.svg.clientWidth;
+    const h = this.svg.clientHeight;
+    if (!w || !h) return;
+    if (!this.lastCanvasWidth || this.autoFit) {
+      this.fitView();
+    } else if (w !== this.lastCanvasWidth) {
+      const oldH = this.vb.w * (this.lastCanvasHeight / this.lastCanvasWidth);
+      const cx = this.vb.x + this.vb.w / 2;
+      const cy = this.vb.y + oldH / 2;
+      const nw = this.vb.w * (w / this.lastCanvasWidth);
+      this.vb = { x: cx - nw / 2, y: cy - (nw * h) / w / 2, w: nw };
+    }
+    this.lastCanvasWidth = w;
+    this.lastCanvasHeight = h;
+    this.render2d();
+  }
+
+  private lastCanvasHeight = 0;
+  /** True until the user pans or zooms; while set, resizes re-fit the whole plan. */
+  private autoFit = true;
 
   private action(act: string): void {
     switch (act) {
@@ -329,12 +371,13 @@ export class FloorplanCardEditor extends HTMLElement {
     }
   }
 
-  private showTab(tab: "2d" | "3d"): void {
+  private showTab(tab: Tab): void {
     this.tab = tab;
     this.root.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-    this.root.querySelector<HTMLElement>(".pane-2d")!.hidden = tab !== "2d";
-    this.root.querySelector<HTMLElement>(".pane-3d")!.hidden = tab !== "3d";
-    if (tab === "3d" && !this.viewer) {
+    this.root.querySelector<HTMLElement>(".pane-2d")!.hidden = tab === "3d";
+    this.root.querySelector<HTMLElement>(".pane-3d")!.hidden = tab === "2d";
+    this.root.querySelector<HTMLElement>(".main")!.classList.toggle("both", tab === "both");
+    if (tab !== "2d" && !this.viewer) {
       this.viewer = new Viewer();
       this.root.querySelector(".viewer3d")!.appendChild(this.viewer.element);
       this.viewer.setConfig(this.config);
@@ -342,8 +385,8 @@ export class FloorplanCardEditor extends HTMLElement {
     } else if (tab === "2d") {
       this.viewer?.dispose();
       this.viewer = undefined;
-      this.render2d();
     }
+    this.render2d();
   }
 
   private renderEntityList(): void {
@@ -438,23 +481,40 @@ export class FloorplanCardEditor extends HTMLElement {
     );
   }
 
-  private toggleWide(): void {
-    this.wide = !this.wide;
-    this.root.querySelector(".wide-btn")?.classList.toggle("on", this.wide);
+  private toggleWide(force?: boolean): void {
+    this.wide = force ?? !this.wide;
+    try {
+      localStorage.setItem(WIDE_KEY, this.wide ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+    this.classList.toggle("wide", this.wide);
+    const btn = this.root.querySelector(".wide-btn");
+    btn?.classList.toggle("on", this.wide);
+    const label = btn?.querySelector("span");
+    if (label) label.textContent = this.wide ? "Normale Größe" : "Großansicht";
+
     const dialog = this.findAncestor("hui-dialog-edit-card");
-    if (!dialog) return;
-    if ("large" in dialog) (dialog as any).large = this.wide;
-    const inner = dialog.shadowRoot?.querySelector<HTMLElement>("ha-dialog, ha-md-dialog, ha-wa-dialog, ha-adaptive-dialog");
-    const width = "min(1600px, 96vw)";
-    for (const el of [dialog, inner]) {
-      if (!el) continue;
-      for (const prop of ["--mdc-dialog-min-width", "--mdc-dialog-max-width", "--ha-dialog-width-md", "--ha-dialog-width-lg", "--md-dialog-container-max-inline-size", "--md-dialog-container-min-inline-size"]) {
-        if (this.wide) el.style.setProperty(prop, width);
-        else el.style.removeProperty(prop);
+    if (dialog) {
+      if ("large" in dialog) (dialog as any).large = this.wide;
+      // The HA card preview is redundant next to our own 2D/3D view, so hide it and let the
+      // dialog take (almost) the whole screen.
+      const root = dialog.shadowRoot;
+      let style = root?.getElementById(WIDE_STYLE_ID);
+      if (this.wide && root && !style) {
+        style = document.createElement("style");
+        style.id = WIDE_STYLE_ID;
+        style.textContent = WIDE_DIALOG_CSS;
+        root.appendChild(style);
+      } else if (!this.wide) {
+        style?.remove();
       }
     }
-    // Let the canvas pick up its new size.
-    requestAnimationFrame(() => this.render2d());
+    // Once the dialog has resized, show the whole plan at the new size.
+    setTimeout(() => {
+      this.fitView();
+      this.render2d();
+    }, 350);
   }
 
   private findAncestor(name: string): HTMLElement | undefined {
@@ -628,6 +688,7 @@ export class FloorplanCardEditor extends HTMLElement {
   }
 
   private fitView(): void {
+    this.autoFit = true;
     const pts: Vec[] = [];
     for (const w of this.fp.walls) pts.push({ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 });
     for (const r of this.fp.rooms) for (const [x, y] of r.points) pts.push({ x, y });
@@ -844,6 +905,7 @@ export class FloorplanCardEditor extends HTMLElement {
     switch (d.type) {
       case "pan": {
         const s = this.scale;
+        this.autoFit = false;
         this.vb.x = d.vb.x - (ev.clientX - d.start.x) / s;
         this.vb.y = d.vb.y - (ev.clientY - d.start.y) / s;
         d.moved = true;
@@ -1035,6 +1097,7 @@ export class FloorplanCardEditor extends HTMLElement {
     ev.preventDefault();
     const p = this.toPlan(ev);
     const f = Math.exp(ev.deltaY * 0.0015);
+    this.autoFit = false;
     const w = Math.max(100, Math.min(20000, this.vb.w * f));
     const k = w / this.vb.w;
     this.vb = { x: p.x - (p.x - this.vb.x) * k, y: p.y - (p.y - this.vb.y) * k, w };
@@ -1066,7 +1129,7 @@ export class FloorplanCardEditor extends HTMLElement {
   }
 
   private render2d(): void {
-    if (!this.svg || this.tab !== "2d") return;
+    if (!this.svg || this.tab === "3d") return;
     const s = this.scale;
     const aspect = (this.svg.clientHeight || 420) / (this.svg.clientWidth || 600);
     const vb = { ...this.vb, h: this.vb.w * aspect };
@@ -1238,8 +1301,33 @@ export class FloorplanCardEditor extends HTMLElement {
   }
 }
 
+const WIDE_KEY = "floorplan-3d-card-editor-wide";
+const WIDE_STYLE_ID = "fp3d-wide";
+const WIDE_DIALOG_CSS = `
+ha-dialog, ha-md-dialog, ha-wa-dialog, ha-adaptive-dialog {
+  --mdc-dialog-min-width: 98vw; --mdc-dialog-max-width: 98vw;
+  --mdc-dialog-min-height: 96vh; --mdc-dialog-max-height: 96vh;
+  --ha-dialog-width-md: 98vw; --ha-dialog-width-lg: 98vw; --ha-dialog-min-height: 96vh; --ha-dialog-max-height: 96vh;
+  --md-dialog-container-min-inline-size: 98vw; --md-dialog-container-max-inline-size: 98vw;
+  --md-dialog-container-min-block-size: 96vh; --md-dialog-container-max-block-size: 96vh;
+  --dialog-surface-margin-top: 2vh;
+}
+.element-preview { display: none !important; }
+.element-editor { width: 100% !important; max-width: none !important; flex: 1 1 100% !important; }
+`;
+
 const EDITOR_STYLES = `
-:host { display: block; }
+:host { display: block; container-type: inline-size; }
+.wide-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  margin-bottom: 12px; padding: 10px 14px; font-weight: 600; font-size: 15px;
+  background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); border: none; border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.wide-btn svg { width: 20px; height: 20px; fill: currentColor; }
+.wide-btn:hover { filter: brightness(1.1); }
+.wide-btn.on { background: var(--secondary-background-color, #eee); color: var(--primary-text-color); box-shadow: none; border: 1px solid var(--divider-color, #ccc); }
+
 * { box-sizing: border-box; }
 button {
   font: inherit; border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff);
@@ -1302,4 +1390,24 @@ label.check input { width: auto; }
 .extra summary { cursor: pointer; font-size: 14px; padding: 4px 0; }
 .extra .grid2, .extra textarea { margin-top: 6px; }
 textarea { font-family: monospace; font-size: 12px; }
+.layout { display: grid; grid-template-columns: 1fr; gap: 0 16px; grid-template-areas: "general" "main" "props" "extra"; }
+.general { grid-area: general; }
+.main { grid-area: main; min-width: 0; }
+.props { grid-area: props; }
+.layout > details.extra { grid-column: 1 / -1; }
+.main.both .pane-2d .canvas, .main.both .pane-3d .viewer3d { height: clamp(260px, 32vh, 480px); }
+.main.both .pane-3d { margin-top: 8px; }
+@container (min-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    grid-template-areas: "general main" "props main" "extra1 main" "extra2 main";
+    grid-template-rows: auto auto auto 1fr;
+    align-items: start;
+  }
+  .layout > details.extra { grid-column: 1; }
+  .main { position: sticky; top: 0; }
+  .canvas, .pane-3d .viewer3d { height: max(460px, calc(100vh - 260px)); }
+  .main.both .pane-2d .canvas, .main.both .pane-3d .viewer3d { height: max(260px, calc(50vh - 170px)); }
+  .general .grid2, .props .grid2, .bg.grid2 { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
 `;
