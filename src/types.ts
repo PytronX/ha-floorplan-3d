@@ -90,6 +90,8 @@ export interface CardConfig {
   type: string;
   title?: string;
   height?: number;
+  /** Fill the remaining screen height, e.g. as the only card of a panel view. */
+  full_page?: boolean;
   wall_height?: number;
   wall_thickness?: number;
   wall_color?: string;

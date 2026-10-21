@@ -21,6 +21,14 @@ Gab es den Ordner `www` vorher noch nicht, musst du Home Assistant **einmal neu 
 
 Bedienung im Editor: leere Fläche ziehen = verschieben, Mausrad = Zoom, `Entf` = löschen, `Strg+Z` = rückgängig.
 
+## Karte als ganze Dashboard-Seite
+
+1. Dashboard bearbeiten → neue Ansicht (Tab) hinzufügen → **Ansichtstyp „Panel (einzelne Karte)“** wählen.
+2. In dieser Ansicht die 3D Floorplan Card hinzufügen (oder eine vorhandene per Code-Editor hineinkopieren).
+3. Im Karten-Editor **„Ganze Dashboard-Seite ausfüllen“** anhaken. Die Karte füllt dann Breite und Höhe der Seite aus und passt sich der Fenstergröße an.
+
+Zusätzlich hat jede Karte unten rechts einen **Vollbild-Button**.
+
 ## Hitboxen
 
 - Zeigen Name und Zustand (z. B. `21,5 °C`) und leuchten gelb, wenn die Entität an ist.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Neue Option „Ganze Dashboard-Seite ausfüllen“: Die Karte nimmt die komplette Bildschirmhöhe ein, ideal als einzige Karte in einer Panel-Ansicht.
+- Vollbild-Button auf der Karte (unten rechts neben „Ansicht zurücksetzen“).
+
 ## 0.3.1
 
 - Neues Editor-Layout: Bei genug Breite stehen links alle Eingabefelder und rechts der Grundriss bzw. die 3D-Ansicht (mitlaufend beim Scrollen).

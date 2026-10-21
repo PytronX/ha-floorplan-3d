@@ -45,6 +45,14 @@ Tipps:
 - Leere Fläche ziehen = Ansicht verschieben, Mausrad = Zoom, `Entf` löscht, `Strg+Z` macht rückgängig, `Esc` beendet das Zeichnen.
 - Eine Deckenlampe ist z. B. eine flache Hitbox mit *Höhe über Boden* 230 cm.
 
+## Karte als ganze Dashboard-Seite
+
+1. Dashboard bearbeiten → neue Ansicht (Tab) hinzufügen → **Ansichtstyp „Panel (einzelne Karte)“** wählen.
+2. In dieser Ansicht die 3D Floorplan Card hinzufügen (oder eine vorhandene per Code-Editor hineinkopieren).
+3. Im Karten-Editor **„Ganze Dashboard-Seite ausfüllen“** anhaken. Die Karte füllt dann Breite und Höhe der Seite aus und passt sich der Fenstergröße an.
+
+Zusätzlich hat jede Karte unten rechts einen **Vollbild-Button**.
+
 ## Konfiguration (YAML)
 
 Alle Maße in **Zentimetern**. Normalerweise musst du das nicht von Hand schreiben.
@@ -53,6 +61,7 @@ Alle Maße in **Zentimetern**. Normalerweise musst du das nicht von Hand schreib
 type: custom:floorplan-3d-card
 title: Wohnung
 height: 420              # Kartenhöhe in px
+full_page: false         # true = ganze Seite ausfüllen (Panel-Ansicht)
 wall_height: 250
 wall_thickness: 12
 wall_color: "#e8e4dc"
