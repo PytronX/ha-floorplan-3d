@@ -21,7 +21,18 @@ WWW_DIR = CONFIG_DIR / "www"
 CARD_DIR = WWW_DIR / "floorplan-3d"
 CARD_DST = CARD_DIR / "floorplan-3d-card.js"
 OPTIONS = Path("/data/options.json")
-TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+S6_ENV = Path("/run/s6/container_environment")
+
+
+def read_env(name: str) -> str:
+    """Read a container variable; s6-overlay may strip it from our process environment."""
+    value = os.environ.get(name, "")
+    if not value and (S6_ENV / name).is_file():
+        value = (S6_ENV / name).read_text().strip()
+    return value
+
+
+TOKEN = read_env("SUPERVISOR_TOKEN")
 WS_URL = "ws://supervisor/core/websocket"
 API_URL = "http://supervisor/core/api"
 CARD_FILE = "floorplan-3d-card.js"
@@ -67,10 +78,12 @@ class CoreWS:
         msg = await self.ws.receive_json()
         if msg.get("type") != "auth_required":
             raise RuntimeError(f"Unerwartete Antwort: {msg}")
+        if not TOKEN:
+            raise RuntimeError("Kein SUPERVISOR_TOKEN vorhanden")
         await self.ws.send_json({"type": "auth", "access_token": TOKEN})
         msg = await self.ws.receive_json()
         if msg.get("type") != "auth_ok":
-            raise RuntimeError("Anmeldung an Home Assistant fehlgeschlagen")
+            raise RuntimeError(f"Anmeldung an Home Assistant fehlgeschlagen: {msg.get('message') or msg.get('type')}")
         return self
 
     async def __aexit__(self, *exc):
@@ -224,13 +237,17 @@ async def reregister(_request: web.Request) -> web.Response:
 @web.middleware
 async def ingress_only(request: web.Request, handler):
     # Only the Supervisor ingress proxy may talk to us.
-    if os.environ.get("SUPERVISOR_TOKEN") and request.remote != "172.30.32.2":
+    if TOKEN and request.remote != "172.30.32.2":
         raise web.HTTPForbidden()
     return await handler(request)
 
 
 async def main() -> None:
-    state["version"] = os.environ.get("FLOORPLAN_VERSION", "")
+    try:
+        state["version"] = Path("/app/VERSION").read_text().strip()
+    except OSError:
+        state["version"] = ""
+    log.info("3D Floorplan %s, Token vorhanden: %s", state["version"] or "?", bool(TOKEN))
     app = web.Application(middlewares=[ingress_only])
     app.router.add_get("/", page)
     app.router.add_post("/register", reregister)

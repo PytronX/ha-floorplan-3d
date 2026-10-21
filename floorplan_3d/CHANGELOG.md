@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Behoben: Die Dashboard-Ressource wurde nicht eingetragen („Anmeldung an Home Assistant fehlgeschlagen“), weil der Dienst das Supervisor-Token nicht sah.
+- Versionsnummer wird im Seitenleisten-Panel angezeigt.
+
 ## 0.2.0
 
 - Als Home-Assistant-App verpackt: kopiert die Karte nach `/config/www/floorplan-3d/` und trägt sie automatisch als Dashboard-Ressource ein.
