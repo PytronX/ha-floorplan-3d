@@ -8,7 +8,7 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
 
 ## Funktionen
 
-- **3D-Ansicht** (Three.js): Wände, Türen, Fenster und farbige Räume; drehen, zoomen, verschieben mit Maus oder Touch.
+- **3D-Ansicht** (Three.js): Wände (auch mit Dachschräge), Türen, Fenster und Räume mit Farben oder Texturen; drehen, zoomen, verschieben mit Maus oder Touch.
 - **Eingebauter Editor** im normalen Karten-Editor von HA:
   - *Raum + Wände*: Rechteck aufziehen → vier Wände und ein Raum.
   - *Wand*: Wandzüge Punkt für Punkt zeichnen (Raster- und Eckpunkt-Fang, Längenanzeige).
@@ -16,6 +16,9 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
   - *Tür / Fenster*: auf eine Wand klicken, danach entlang der Wand verschieben.
   - *Hitbox*: Rechteck aufziehen, Entität, Höhe, Icon und Klick-Aktion festlegen.
   - Verschieben, Eckpunkte ziehen (verbundene Wände ziehen mit), Rückgängig/Wiederholen, Maße direkt eingeben.
+  - Wandhöhe am Anfang und Ende getrennt einstellbar (Dachschrägen).
+  - Texturen für Wände und Böden: eingebaut (Parkett, Fliesen, Teppich, Backstein, Beton, Rauputz, Tapete) oder eigenes Bild, z. B. `/local/texturen/holz.jpg`.
+  - Button „Breiter“, um das Editor-Fenster zu verbreitern.
   - Hintergrundbild (z. B. ein eingescannter Grundriss) zum Nachzeichnen.
   - 3D-Vorschau und speicherbare Startansicht der Kamera.
   - Import/Export als JSON.
@@ -53,6 +56,8 @@ height: 420              # Kartenhöhe in px
 wall_height: 250
 wall_thickness: 12
 wall_color: "#e8e4dc"
+wall_texture: builtin:plaster   # optional, Standard für alle Wände
+floor_texture: builtin:wood     # optional, Standard für alle Böden
 hitbox_mode: visible     # visible | hover | hidden
 show_labels: true
 show_room_names: true
@@ -66,10 +71,11 @@ background:              # optional, nur im Editor sichtbar
 floorplan:
   walls:
     - { id: w1, x1: 0, y1: 0, x2: 800, y2: 0 }
+    - { id: w2, x1: 800, y1: 0, x2: 800, y2: 600, height: 320, height_end: 180, texture: "builtin:brick" }
   openings:
     - { id: o1, wall: w1, type: window, offset: 200, width: 120, height: 130, sill: 90 }
   rooms:
-    - { id: r1, name: Wohnzimmer, color: "#c9b79c", points: [[0, 0], [800, 0], [800, 600], [0, 600]] }
+    - { id: r1, name: Wohnzimmer, texture: "builtin:wood", texture_scale: 120, points: [[0, 0], [800, 0], [800, 600], [0, 600]] }
   hotspots:
     - id: h1
       entity: light.wohnzimmer

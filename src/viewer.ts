@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { domainOf, formatState, friendlyName, isActive } from "./ha";
+import { TextureCache, defaultTextureSize } from "./textures";
 import { DEFAULTS, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
 
 const CM = 0.01;
@@ -38,6 +39,7 @@ export class Viewer {
   private raycaster = new THREE.Raycaster();
   private hasView = false;
   private disposed = false;
+  private textures = new TextureCache(() => this.requestRender());
 
   constructor() {
     this.element = document.createElement("div");
@@ -131,6 +133,7 @@ export class Viewer {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearWorld();
+    this.textures.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.element.remove();
@@ -175,11 +178,13 @@ export class Viewer {
       geo.rotateX(Math.PI / 2);
       const mesh = new THREE.Mesh(
         geo,
-        new THREE.MeshStandardMaterial({
-          color: room.color || cfg.floor_color || DEFAULTS.floor_color,
-          side: THREE.DoubleSide,
-          roughness: 0.9,
-        })
+        this.surfaceMaterial(
+          room.texture ?? cfg.floor_texture,
+          room.texture_scale,
+          room.color || cfg.floor_color || DEFAULTS.floor_color,
+          room.color,
+          THREE.DoubleSide
+        )
       );
       mesh.position.y = 0.002;
       this.world.add(mesh);
@@ -196,11 +201,6 @@ export class Viewer {
     }
 
     // Walls
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: cfg.wall_color || DEFAULTS.wall_color,
-      roughness: 0.85,
-    });
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 });
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x9fd3ff,
       transparent: true,
@@ -211,18 +211,40 @@ export class Viewer {
     const doorMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.7 });
     for (const wall of fp.walls) {
       const ops = fp.openings.filter((o) => o.wall === wall.id);
-      this.buildWall(wall, ops, wallMat, edgeMat, glassMat, doorMat);
+      const mat = this.surfaceMaterial(
+        wall.texture ?? cfg.wall_texture,
+        wall.texture_scale,
+        wall.color || cfg.wall_color || DEFAULTS.wall_color,
+        wall.color
+      );
+      this.buildWall(wall, ops, mat, glassMat, doorMat);
     }
 
     // Hotspots
     for (const h of fp.hotspots) this.buildHotspot(h);
   }
 
+  /** Material for a wall or floor. With a texture the colour only tints it when set explicitly. */
+  private surfaceMaterial(
+    texture: string | undefined,
+    scale: number | undefined,
+    color: string,
+    explicitColor: string | undefined,
+    side: THREE.Side = THREE.FrontSide
+  ): THREE.MeshStandardMaterial {
+    const map = texture && texture !== "none" ? this.textures.get(texture, scale || defaultTextureSize(texture)) : undefined;
+    return new THREE.MeshStandardMaterial({
+      color: map ? explicitColor || "#ffffff" : color,
+      map: map ?? null,
+      roughness: 0.85,
+      side,
+    });
+  }
+
   private buildWall(
     wall: Wall,
     openings: Opening[],
-    mat: THREE.Material,
-    edgeMat: THREE.LineBasicMaterial,
+    wallMat: THREE.Material,
     glassMat: THREE.Material,
     doorMat: THREE.Material
   ): void {
@@ -233,22 +255,23 @@ export class Viewer {
     if (len < 1) return;
     const angle = Math.atan2(dy, dx);
     const t = wall.thickness ?? cfg.wall_thickness ?? DEFAULTS.wall_thickness;
-    const H = wall.height ?? cfg.wall_height ?? DEFAULTS.wall_height;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const wallMat = wall.color ? new THREE.MeshStandardMaterial({ color: wall.color, roughness: 0.85 }) : mat;
+    const h0 = wall.height ?? cfg.wall_height ?? DEFAULTS.wall_height;
+    const h1 = wall.height_end ?? h0;
+    // Height of the wall top at position u along the wall (cm).
+    const top = (u: number) => h0 + ((h1 - h0) * Math.max(0, Math.min(len, u))) / len;
 
-    const place = (obj: THREE.Object3D, u: number, v: number) => {
-      obj.position.set((wall.x1 + cos * u) * CM, v * CM, (wall.y1 + sin * u) * CM);
-      obj.rotation.y = -angle;
-    };
-    const box = (u0: number, u1: number, v0: number, v1: number, depth: number, m: THREE.Material, edges = true) => {
-      if (u1 - u0 < 0.5 || v1 - v0 < 0.5) return;
-      const geo = new THREE.BoxGeometry((u1 - u0) * CM, (v1 - v0) * CM, depth * CM);
-      const mesh = new THREE.Mesh(geo, m);
-      place(mesh, (u0 + u1) / 2, (v0 + v1) / 2);
-      if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
-      this.world.add(mesh);
+    // Every piece lives in the wall's local frame: x along the wall, z across it.
+    const group = new THREE.Group();
+    group.position.set(wall.x1 * CM, 0, wall.y1 * CM);
+    group.rotation.y = -angle;
+    this.world.add(group);
+
+    const piece = (u0: number, u1: number, v0: number, top0: number, top1: number, depth: number, m: THREE.Material) => {
+      if (u1 - u0 < 0.5) return;
+      top0 = Math.max(top0, v0);
+      top1 = Math.max(top1, v0);
+      if (top0 - v0 < 0.5 && top1 - v0 < 0.5) return;
+      group.add(new THREE.Mesh(prismGeometry(u0, u1, v0, top0, top1, depth), m));
     };
 
     const sorted = [...openings].sort((a, b) => a.offset - b.offset);
@@ -258,27 +281,26 @@ export class Viewer {
       const b = Math.min(len, op.offset + op.width / 2);
       if (b <= a) continue;
       const sill = op.sill ?? (op.type === "door" ? 0 : 90);
-      const top = Math.min(H, sill + op.height);
-      if (a > cursor) box(cursor, a, 0, H, t, wallMat);
-      box(a, b, 0, sill, t, wallMat);
-      box(a, b, top, H, t, wallMat);
+      const opTop = Math.min(Math.min(top(a), top(b)), sill + op.height);
+      if (a > cursor) piece(cursor, a, 0, top(cursor), top(a), t, wallMat);
+      piece(a, b, 0, sill, sill, t, wallMat);
+      piece(a, b, opTop, top(a), top(b), t, wallMat);
       if (op.type === "window") {
-        box(a, b, sill, top, Math.max(1, t * 0.15), glassMat, false);
+        piece(a, b, sill, opTop, opTop, Math.max(1, t * 0.15), glassMat);
       } else {
         // Door leaf, opened ~65 degrees around the hinge at `a`.
         const pivot = new THREE.Group();
-        place(pivot, a, 0);
-        pivot.rotation.y = -angle - 1.13;
+        pivot.position.set(a * CM, 0, 0);
+        pivot.rotation.y = -1.13;
         const w = b - a;
-        const leafGeo = new THREE.BoxGeometry(w * CM, (top - 1) * CM, 4 * CM);
-        const leaf = new THREE.Mesh(leafGeo, doorMat);
-        leaf.position.set((w / 2) * CM, ((top - 1) / 2) * CM, 0);
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(w * CM, (opTop - 1) * CM, 4 * CM), doorMat);
+        leaf.position.set((w / 2) * CM, ((opTop - 1) / 2) * CM, 0);
         pivot.add(leaf);
-        this.world.add(pivot);
+        group.add(pivot);
       }
       cursor = Math.max(cursor, b);
     }
-    box(cursor, len + t / 2, 0, H, t, wallMat);
+    piece(cursor, len + t / 2, 0, top(cursor), top(len + t / 2), t, wallMat);
   }
 
   private buildHotspot(h: Hotspot): void {
@@ -475,6 +497,42 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.requestRender();
   }
+}
+
+/**
+ * Box-like prism from u0..u1 along the wall, bottom at v0 and a (possibly sloped) top from
+ * top0 to top1, `depth` thick. Units are cm in, metres out; UVs are in metres so textures
+ * keep their real-world size.
+ */
+function prismGeometry(u0: number, u1: number, v0: number, top0: number, top1: number, depth: number): THREE.BufferGeometry {
+  const x0 = u0 * CM;
+  const x1 = u1 * CM;
+  const y0 = v0 * CM;
+  const ya = top0 * CM;
+  const yb = top1 * CM;
+  const z = (depth / 2) * CM;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const quad = (p: number[][], t: number[][]) => {
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      pos.push(...p[i]);
+      uv.push(...t[i]);
+    }
+  };
+  // front (+z) and back (-z)
+  quad([[x0, y0, z], [x1, y0, z], [x1, yb, z], [x0, ya, z]], [[x0, y0], [x1, y0], [x1, yb], [x0, ya]]);
+  quad([[x1, y0, -z], [x0, y0, -z], [x0, ya, -z], [x1, yb, -z]], [[-x1, y0], [-x0, y0], [-x0, ya], [-x1, yb]]);
+  // top (sloped) and bottom
+  quad([[x0, ya, z], [x1, yb, z], [x1, yb, -z], [x0, ya, -z]], [[x0, z], [x1, z], [x1, -z], [x0, -z]]);
+  quad([[x0, y0, -z], [x1, y0, -z], [x1, y0, z], [x0, y0, z]], [[x0, -z], [x1, -z], [x1, z], [x0, z]]);
+  // ends
+  quad([[x0, y0, -z], [x0, y0, z], [x0, ya, z], [x0, ya, -z]], [[-z, y0], [z, y0], [z, ya], [-z, ya]]);
+  quad([[x1, y0, z], [x1, y0, -z], [x1, yb, -z], [x1, yb, z]], [[z, y0], [-z, y0], [-z, yb], [z, yb]]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 export function centroid(points: [number, number][]): [number, number] {
