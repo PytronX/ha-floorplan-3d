@@ -1,11 +1,14 @@
 import { resolveAction } from "./ha";
 import {
   DEFAULTS,
+  defaultFloorName,
   formatArea,
+  getFloors,
   normalizeFloorplan,
   roomArea,
   uid,
   type CardConfig,
+  type Floor,
   type Floorplan,
   type Hass,
   type Hotspot,
@@ -30,21 +33,22 @@ interface Vec {
 }
 
 type Drag =
-  | { type: "pan"; start: Vec; vb: Vec; moved: boolean; click?: Vec }
+  | { type: "pan"; start: Vec; vb: Vec; moved: boolean; right?: boolean }
   | { type: "move"; sel: Selection; start: Vec; orig: string; moved: boolean }
   | { type: "endpoint"; ends: { wall: Wall; end: 1 | 2 }[]; moved: boolean }
   | { type: "vertex"; room: Room; idx: number; moved: boolean }
   | { type: "opening"; op: Opening; wall: Wall; moved: boolean }
-  | { type: "resize"; hs: Hotspot; anchor: Vec; moved: boolean };
+  | { type: "resize"; hs: Hotspot; anchor: Vec; moved: boolean }
+  | { type: "rect"; tool: "box" | "room" | "hotspot"; start: Vec; end: Vec };
 
 const TOOLS: { id: Tool; label: string; icon: string; hint: string }[] = [
-  { id: "select", label: "Auswählen", icon: "M7 2l12 11.2-5.8.5 3.3 7.3-2.2 1-3.2-7.4L7 18.5z", hint: "Element anklicken zum Bearbeiten, ziehen zum Verschieben. Leere Fläche ziehen = Ansicht verschieben, Mausrad = Zoom." },
-  { id: "box", label: "Raum + Wände", icon: "M3 3h18v18H3zm2 2v14h14V5z", hint: "Zwei gegenüberliegende Ecken anklicken: erzeugt vier Wände und einen Raum. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
-  { id: "wall", label: "Wand", icon: "M3 16h18v4H3zm0-6h8v4H3zm10 0h8v4h-8zM3 4h18v4H3z", hint: "Klicken setzt Wandpunkte. Doppelklick, Rechtsklick oder Esc beendet die Wand. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
-  { id: "room", label: "Raum", icon: "M12 3 2 12h3v8h14v-8h3z", hint: "Eckpunkte klicken. Klick auf den ersten Punkt, Doppelklick oder Enter schließt den Raum. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
-  { id: "door", label: "Tür", icon: "M8 3h10v18h-2V5H8v16H6V3zm2 8h2v2h-2z", hint: "Auf eine Wand klicken, um eine Tür einzusetzen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
-  { id: "window", label: "Fenster", icon: "M4 4h16v16H4zm2 2v5h5V6zm7 0v5h5V6zm-7 7v5h5v-5zm7 0v5h5v-5z", hint: "Auf eine Wand klicken, um ein Fenster einzusetzen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
-  { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Zwei gegenüberliegende Ecken anklicken (oder einmal doppelt für 50×50 cm), danach eine Entität zuweisen. Linke Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "select", label: "Auswählen", icon: "M7 2l12 11.2-5.8.5 3.3 7.3-2.2 1-3.2-7.4L7 18.5z", hint: "Element anklicken zum Bearbeiten, ziehen zum Verschieben. Leere Fläche oder rechte Maustaste ziehen = Ansicht verschieben, Mausrad = Zoom." },
+  { id: "box", label: "Raum + Wände", icon: "M3 3h18v18H3zm2 2v14h14V5z", hint: "Rechteck aufziehen: erzeugt vier Wände und einen Raum. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "wall", label: "Wand", icon: "M3 16h18v4H3zm0-6h8v4H3zm10 0h8v4h-8zM3 4h18v4H3z", hint: "Klicken setzt Wandpunkte. Doppelklick, Rechtsklick oder Esc beendet die Wand. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "room", label: "Raum", icon: "M12 3 2 12h3v8h14v-8h3z", hint: "Rechteck aufziehen oder Eckpunkte klicken. Klick auf den ersten Punkt schließt den Raum. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "door", label: "Tür", icon: "M8 3h10v18h-2V5H8v16H6V3zm2 8h2v2h-2z", hint: "Auf eine Wand klicken, um eine Tür einzusetzen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "window", label: "Fenster", icon: "M4 4h16v16H4zm2 2v5h5V6zm7 0v5h5V6zm-7 7v5h5v-5zm7 0v5h5v-5z", hint: "Auf eine Wand klicken, um ein Fenster einzusetzen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
+  { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Rechteck aufziehen (oder klicken für 50×50 cm), danach eine Entität zuweisen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
 ];
 
 const esc = (s: string) =>
@@ -54,6 +58,9 @@ const round = (n: number) => Math.round(n * 10) / 10;
 export class FloorplanCardEditor extends HTMLElement {
   private _hass?: Hass;
   private config!: CardConfig;
+  /** All storeys; `fp` is the plan of the one being edited. */
+  private floors: Floor[] = [];
+  private floorIdx = 0;
   private fp: Floorplan = normalizeFloorplan(undefined);
   private lastEmitted = "";
   private root: ShadowRoot;
@@ -62,8 +69,6 @@ export class FloorplanCardEditor extends HTMLElement {
   private tool: Tool = "select";
   private sel?: Selection;
   private draft: Vec[] = [];
-  /** First corner of a rectangle being placed with the box / hitbox tool. */
-  private rectStart?: Vec;
   private cursor?: Vec;
   private drag?: Drag;
   private history: string[] = [];
@@ -120,7 +125,6 @@ export class FloorplanCardEditor extends HTMLElement {
     const ids = Object.keys(hass.states);
     if (first || ids.length !== this.entityIds.length) {
       this.entityIds = ids.sort();
-      this.renderEntityList();
     }
   }
 
@@ -129,7 +133,9 @@ export class FloorplanCardEditor extends HTMLElement {
     if (json === this.lastEmitted && this.built) return;
     const isFirst = !this.config;
     this.config = { ...config };
-    this.fp = normalizeFloorplan(structuredClone(config.floorplan));
+    this.floors = structuredClone(getFloors(config));
+    this.floorIdx = Math.min(this.floorIdx, this.floors.length - 1);
+    this.fp = this.floors[this.floorIdx].floorplan;
     if (!this.built) this.build();
     if (this.sel && !this.find(this.sel)) this.sel = undefined;
     this.renderGeneral();
@@ -143,6 +149,25 @@ export class FloorplanCardEditor extends HTMLElement {
     this.tab = "2d";
     this.built = false;
     window.removeEventListener("resize", this.onWindowResize);
+    this.injectBaseStyle(false);
+  }
+
+  private dialogRoot?: ShadowRoot;
+
+  private injectBaseStyle(on: boolean): void {
+    if (on) this.dialogRoot = this.findAncestor("hui-dialog-edit-card")?.shadowRoot ?? undefined;
+    const root = this.dialogRoot;
+    if (!root) return;
+    let style = root.getElementById(BASE_STYLE_ID);
+    if (on && !style) {
+      style = document.createElement("style");
+      style.id = BASE_STYLE_ID;
+      style.textContent = BASE_DIALOG_CSS;
+      root.appendChild(style);
+    } else if (!on) {
+      style?.remove();
+      this.dialogRoot = undefined;
+    }
   }
 
   connectedCallback(): void {
@@ -158,16 +183,45 @@ export class FloorplanCardEditor extends HTMLElement {
     } catch {
       /* storage unavailable */
     }
-    // The dialog may still be assembling itself, so apply the remembered size a bit later.
-    if (wide) setTimeout(() => this.isConnected && this.toggleWide(true), 50);
+    // The dialog may still be assembling itself, so style it a bit later.
+    setTimeout(() => {
+      if (!this.isConnected) return;
+      this.injectBaseStyle(true);
+      if (wide) this.toggleWide(true);
+    }, 50);
   }
 
   // ------------------------------------------------------------------ state
 
   private commit(): void {
-    this.config = { ...this.config, floorplan: structuredClone(this.fp) };
+    const next: CardConfig = { ...this.config };
+    // One storey keeps the simple `floorplan` format; several are stored as `floors`.
+    if (this.floors.length > 1) {
+      next.floors = structuredClone(this.floors);
+      delete next.floorplan;
+    } else {
+      next.floorplan = structuredClone(this.fp);
+      delete next.floors;
+    }
+    this.config = next;
     this.emit();
-    this.viewer?.setConfig(this.config);
+    this.viewer?.setConfig(this.viewConfig());
+  }
+
+  /** Config for the 3D preview: the storey being edited. */
+  private viewConfig(): CardConfig {
+    return { ...this.config, floorplan: this.fp };
+  }
+
+  private stateJson(): string {
+    return JSON.stringify({ floors: this.floors, idx: this.floorIdx });
+  }
+
+  private restoreState(json: string): void {
+    const st = JSON.parse(json) as { floors: Floor[]; idx: number };
+    this.floors = st.floors;
+    this.floorIdx = Math.min(st.idx, st.floors.length - 1);
+    this.fp = this.floors[this.floorIdx].floorplan;
   }
 
   private emit(): void {
@@ -176,7 +230,7 @@ export class FloorplanCardEditor extends HTMLElement {
   }
 
   private snapshot(): void {
-    this.history.push(JSON.stringify(this.fp));
+    this.history.push(this.stateJson());
     if (this.history.length > 100) this.history.shift();
     this.future = [];
   }
@@ -184,20 +238,22 @@ export class FloorplanCardEditor extends HTMLElement {
   private undo(): void {
     const prev = this.history.pop();
     if (!prev) return;
-    this.future.push(JSON.stringify(this.fp));
-    this.fp = JSON.parse(prev);
+    this.future.push(this.stateJson());
+    this.restoreState(prev);
     if (this.sel && !this.find(this.sel)) this.sel = undefined;
     this.commit();
+    this.renderFloors();
     this.render();
   }
 
   private redo(): void {
     const next = this.future.pop();
     if (!next) return;
-    this.history.push(JSON.stringify(this.fp));
-    this.fp = JSON.parse(next);
+    this.history.push(this.stateJson());
+    this.restoreState(next);
     if (this.sel && !this.find(this.sel)) this.sel = undefined;
     this.commit();
+    this.renderFloors();
     this.render();
   }
 
@@ -226,7 +282,6 @@ export class FloorplanCardEditor extends HTMLElement {
   private setTool(t: Tool): void {
     this.tool = t;
     this.draft = [];
-    this.rectStart = undefined;
     this.drag = undefined;
     this.root.querySelectorAll<HTMLButtonElement>(".tool").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
     this.hintEl.textContent = TOOLS.find((x) => x.id === t)!.hint;
@@ -240,13 +295,17 @@ export class FloorplanCardEditor extends HTMLElement {
     this.lastCanvasWidth = 0;
     this.root.innerHTML = `
       <style>${EDITOR_STYLES}${VIEWER_STYLES}</style>
-      <datalist id="entities"></datalist>
       <div class="layout">
         <aside class="side">
           <button data-act="wide" class="wide-btn" title="Editor als großes Fenster anzeigen">
             <svg viewBox="0 0 24 24"><path d="M3 3h7v2H6.4l4.3 4.3-1.4 1.4L5 6.4V10H3zm11 0h7v7h-2V6.4l-4.3 4.3-1.4-1.4L17.6 5H14zM3 14h2v3.6l4.3-4.3 1.4 1.4L6.4 19H10v2H3zm16 0h2v7h-7v-2h3.6l-4.3-4.3 1.4-1.4 4.3 4.3z"/></svg>
             <span>Großansicht</span>
           </button>
+          <section class="sec floors-sec">
+            <div class="props-head"><h3>Etagen</h3><button data-act="floor-add" title="Neue, leere Etage anlegen">+ Etage</button></div>
+            <div class="seg floor-list"></div>
+            <div class="floor-edit"></div>
+          </section>
           <section class="sec general-sec"><h3>Allgemein</h3><div class="general"></div></section>
           <section class="sec props"></section>
           <details class="sec extra">
@@ -267,7 +326,7 @@ export class FloorplanCardEditor extends HTMLElement {
               <button data-tab="both">2D + 3D</button>
             </div>
           </div>
-          <div class="pane-2d">
+          <div class="tools2d">
             <div class="toolbar">
               <div class="seg tools">
                 ${TOOLS.map((t) => `<button class="tool ${t.id === this.tool ? "on" : ""}" data-tool="${t.id}" title="${t.hint}"><svg viewBox="0 0 24 24"><path d="${t.icon}"/></svg><span>${t.label}</span></button>`).join("")}
@@ -282,14 +341,18 @@ export class FloorplanCardEditor extends HTMLElement {
               <label class="snap"><input type="checkbox" data-act="snap" checked> Raster</label>
             </div>
             <div class="hint"></div>
-            <div class="canvas" tabindex="0"><svg xmlns="http://www.w3.org/2000/svg"></svg></div>
           </div>
-          <div class="pane-3d" hidden>
-            <div class="viewer3d"></div>
-            <div class="row cam">
-              <button data-act="cam-save">Diese Ansicht als Startansicht speichern</button>
-              <button data-act="cam-clear">Startansicht zurücksetzen</button>
+          <div class="panes">
+            <div class="pane-2d">
+              <div class="canvas" tabindex="0"><svg xmlns="http://www.w3.org/2000/svg"></svg></div>
             </div>
+            <div class="pane-3d" hidden>
+              <div class="viewer3d"></div>
+            </div>
+          </div>
+          <div class="row cam" hidden>
+            <button data-act="cam-save">Diese Ansicht als Startansicht speichern</button>
+            <button data-act="cam-clear">Startansicht zurücksetzen</button>
           </div>
         </div>
       </div>`;
@@ -320,15 +383,78 @@ export class FloorplanCardEditor extends HTMLElement {
       if (this.tool !== "select") this.render2d();
     });
     canvas.addEventListener("dblclick", () => this.finishDraft());
-    canvas.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      this.finishDraft();
-    });
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("keydown", (e) => this.onKey(e));
     new ResizeObserver(() => this.onCanvasResize()).observe(canvas);
 
-    this.renderEntityList();
+    this.root.querySelector(".floor-list")!.addEventListener("click", (ev) => {
+      const b = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-floor]");
+      if (b) this.switchFloor(Number(b.dataset.floor));
+    });
+    this.renderFloors();
+  }
+
+  // ----------------------------------------------------------------- floors
+
+  private renderFloors(): void {
+    const list = this.root.querySelector<HTMLDivElement>(".floor-list");
+    if (!list) return;
+    list.innerHTML = this.floors
+      .map((f, i) => `<button data-floor="${i}" class="${i === this.floorIdx ? "on" : ""}">${esc(f.name)}</button>`)
+      .join("");
+    const edit = this.root.querySelector<HTMLDivElement>(".floor-edit")!;
+    const single = this.floors.length < 2;
+    edit.innerHTML = `
+      <div class="floor-row">
+        <label>Name der Etage<input data-floor-name value="${esc(this.floors[this.floorIdx].name)}"></label>
+        <button data-floor-del class="danger" ${single ? "disabled" : ""} title="Diese Etage löschen">Löschen</button>
+      </div>
+      <div class="note">${single ? "Mit „+ Etage“ legst du weitere Stockwerke an. Auf der Karte kann man dann zwischen den Etagen umschalten." : "Die Wände der Etage darunter werden im Grundriss blass angezeigt, damit du sie nachzeichnen kannst."}</div>`;
+    edit.querySelector<HTMLInputElement>("[data-floor-name]")!.addEventListener("change", (ev) => {
+      const v = (ev.target as HTMLInputElement).value.trim();
+      this.snapshot();
+      this.floors[this.floorIdx].name = v || defaultFloorName(this.floorIdx);
+      this.commit();
+      this.renderFloors();
+    });
+    edit.querySelector("[data-floor-del]")!.addEventListener("click", () => this.deleteFloor());
+  }
+
+  private switchFloor(i: number): void {
+    if (i === this.floorIdx || !this.floors[i]) return;
+    this.floorIdx = i;
+    this.fp = this.floors[i].floorplan;
+    this.sel = undefined;
+    this.draft = [];
+    this.drag = undefined;
+    this.viewer?.setConfig(this.viewConfig());
+    this.renderFloors();
+    this.fitView();
+    this.render();
+  }
+
+  private addFloor(): void {
+    this.snapshot();
+    this.floors.push({ id: uid("f"), name: defaultFloorName(this.floors.length), floorplan: normalizeFloorplan(undefined) });
+    this.commit();
+    this.switchFloor(this.floors.length - 1);
+  }
+
+  private deleteFloor(): void {
+    if (this.floors.length < 2) return;
+    const f = this.floors[this.floorIdx];
+    if (!confirm(`Etage „${f.name}“ mit allem, was darauf gezeichnet ist, löschen?`)) return;
+    this.snapshot();
+    this.floors.splice(this.floorIdx, 1);
+    this.floorIdx = Math.max(0, this.floorIdx - 1);
+    this.fp = this.floors[this.floorIdx].floorplan;
+    this.sel = undefined;
+    this.commit();
+    this.renderFloors();
+    this.viewer?.setConfig(this.viewConfig());
+    this.fitView();
+    this.render();
   }
 
   private lastCanvasWidth = 0;
@@ -369,6 +495,10 @@ export class FloorplanCardEditor extends HTMLElement {
         return this.render2d();
       case "wide":
         return this.toggleWide();
+      case "floor-add":
+        return this.addFloor();
+      case "floor-del":
+        return this.deleteFloor();
       case "cam-save":
         if (!this.viewer) return;
         this.config = { ...this.config, camera: this.viewer.getCamera() };
@@ -383,7 +513,7 @@ export class FloorplanCardEditor extends HTMLElement {
       }
       case "export": {
         const ta = this.root.querySelector<HTMLTextAreaElement>(".json")!;
-        ta.value = JSON.stringify(this.fp, null, 2);
+        ta.value = JSON.stringify(this.floors.length > 1 ? { floors: this.floors } : this.fp, null, 2);
         return;
       }
       case "import": {
@@ -391,9 +521,16 @@ export class FloorplanCardEditor extends HTMLElement {
         try {
           const data = JSON.parse(ta.value);
           this.snapshot();
-          this.fp = normalizeFloorplan(data.floorplan ?? data);
+          if (Array.isArray(data.floors) && data.floors.length) {
+            this.floors = getFloors({ floors: data.floors });
+            this.floorIdx = 0;
+            this.fp = this.floors[0].floorplan;
+          } else {
+            this.fp = this.floors[this.floorIdx].floorplan = normalizeFloorplan(data.floorplan ?? data);
+          }
           this.sel = undefined;
           this.commit();
+          this.renderFloors();
           this.fitView();
           this.render();
         } catch (err) {
@@ -402,9 +539,9 @@ export class FloorplanCardEditor extends HTMLElement {
         return;
       }
       case "clear":
-        if (!confirm("Wirklich den kompletten Grundriss löschen?")) return;
+        if (!confirm(this.floors.length > 1 ? `Wirklich den Grundriss von „${this.floors[this.floorIdx].name}“ löschen?` : "Wirklich den kompletten Grundriss löschen?")) return;
         this.snapshot();
-        this.fp = normalizeFloorplan(undefined);
+        this.fp = this.floors[this.floorIdx].floorplan = normalizeFloorplan(undefined);
         this.sel = undefined;
         this.commit();
         this.render();
@@ -416,29 +553,20 @@ export class FloorplanCardEditor extends HTMLElement {
     this.tab = tab;
     this.root.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     this.root.querySelector<HTMLElement>(".pane-2d")!.hidden = tab === "3d";
+    this.root.querySelector<HTMLElement>(".tools2d")!.hidden = tab === "3d";
     this.root.querySelector<HTMLElement>(".pane-3d")!.hidden = tab === "2d";
+    this.root.querySelector<HTMLElement>(".cam")!.hidden = tab === "2d";
     this.root.querySelector<HTMLElement>(".main")!.classList.toggle("both", tab === "both");
     if (tab !== "2d" && !this.viewer) {
       this.viewer = new Viewer();
       this.root.querySelector(".viewer3d")!.appendChild(this.viewer.element);
-      this.viewer.setConfig(this.config);
+      this.viewer.setConfig(this.viewConfig());
       if (this._hass) this.viewer.setHass(this._hass);
     } else if (tab === "2d") {
       this.viewer?.dispose();
       this.viewer = undefined;
     }
     this.render2d();
-  }
-
-  private renderEntityList(): void {
-    const dl = this.root.querySelector("#entities");
-    if (!dl) return;
-    dl.innerHTML = this.entityIds
-      .map((id) => {
-        const name = this._hass?.states[id]?.attributes.friendly_name;
-        return `<option value="${esc(id)}">${name ? esc(String(name)) : ""}</option>`;
-      })
-      .join("");
   }
 
   private render(): void {
@@ -485,7 +613,7 @@ export class FloorplanCardEditor extends HTMLElement {
         else next[k] = v;
         this.config = next;
         this.emit();
-        this.viewer?.setConfig(this.config);
+        this.viewer?.setConfig(this.viewConfig());
         this.render2d();
       })
     );
@@ -681,6 +809,12 @@ export class FloorplanCardEditor extends HTMLElement {
       `<label>${label}<input data-p="${k}" value="${esc(v ?? "")}" ${extra}></label>`;
     const color = (k: string, label: string, v: string | undefined, def: string) =>
       `<label>${label}<input type="color" data-p="${k}" value="${v ?? def}"></label>`;
+    const actionSelect = (k: string, label: string, cur: string, autoLabel?: string) =>
+      `<label>${label}<select data-p="${k}">
+        ${[...(autoLabel ? [["auto", autoLabel]] : []), ["toggle", "Umschalten"], ["press", "Auslösen / Drücken"], ["more-info", "Info-Dialog"], ["none", "Nichts"]]
+          .map(([v, l]) => `<option value="${v}" ${cur === v ? "selected" : ""}>${l}</option>`)
+          .join("")}
+      </select></label>`;
 
     let title = "";
     let body = "";
@@ -725,14 +859,12 @@ export class FloorplanCardEditor extends HTMLElement {
         const autoLabel = { toggle: "Umschalten", press: "Auslösen", "more-info": "Info-Dialog", none: "nichts" }[auto];
         title = "Hitbox";
         body =
-          `<label class="wide">Entität<input data-p="entity" list="entities" value="${esc(h.entity ?? "")}" placeholder="z.B. light.wohnzimmer"></label>` +
+          `<div class="combo wide"><label>Entität<input data-p="entity" class="entity-input" autocomplete="off" spellcheck="false" value="${esc(h.entity ?? "")}" placeholder="Suchen, z.B. Wohnzimmer oder light."></label><div class="combo-list" hidden></div></div>` +
           txt("label", "Beschriftung", h.label, 'placeholder="Name der Entität"') +
           txt("icon", "Icon", h.icon, 'placeholder="mdi:lightbulb"') +
-          `<label>Klick-Aktion<select data-p="action">
-            ${[["auto", `Automatisch (${autoLabel})`], ["toggle", "Umschalten"], ["press", "Auslösen / Drücken"], ["more-info", "Info-Dialog"], ["none", "Nichts"]]
-              .map(([v, l]) => `<option value="${v}" ${(h.action ?? "auto") === v ? "selected" : ""}>${l}</option>`)
-              .join("")}
-          </select></label>` +
+          actionSelect("action", "Klick-Aktion", h.action ?? "auto", `Automatisch (${autoLabel})`) +
+          actionSelect("hold_action", "Halten-Aktion", h.hold_action ?? "more-info") +
+          actionSelect("double_tap_action", "Doppelklick-Aktion", h.double_tap_action ?? "none") +
           `<label class="check"><input type="checkbox" data-p="show_label" ${h.show_label !== false ? "checked" : ""}> Label anzeigen</label>` +
           num("x", "X (cm)", round(h.x)) +
           num("y", "Y (cm)", round(h.y)) +
@@ -749,12 +881,79 @@ export class FloorplanCardEditor extends HTMLElement {
     el.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-p]").forEach((input) =>
       input.addEventListener("change", () => this.applyProp(input))
     );
+    const entityInput = el.querySelector<HTMLInputElement>(".entity-input");
+    if (entityInput) this.bindEntityCombo(entityInput, el.querySelector<HTMLDivElement>(".combo-list")!);
+  }
+
+  /** Entity search with a suggestion list right below the field (inside the left column). */
+  private bindEntityCombo(input: HTMLInputElement, list: HTMLDivElement): void {
+    let items: string[] = [];
+    let active = -1;
+    const pick = (id: string) => {
+      input.value = id;
+      list.hidden = true;
+      this.applyProp(input);
+    };
+    const show = (filter = true) => {
+      const q = filter ? input.value.trim().toLowerCase() : "";
+      const states = this._hass?.states ?? {};
+      const words = q.split(/\s+/).filter(Boolean);
+      items = this.entityIds
+        .filter((id) => {
+          const hay = `${id} ${states[id]?.attributes.friendly_name ?? ""}`.toLowerCase();
+          return words.every((w) => hay.includes(w));
+        })
+        .slice(0, 200);
+      active = items.length ? 0 : -1;
+      list.innerHTML = items.length
+        ? items
+            .map((id, i) => {
+              const name = states[id]?.attributes.friendly_name;
+              return `<div class="opt ${i === active ? "act" : ""}" data-id="${esc(id)}"><b>${esc(String(name ?? id))}</b><span>${esc(id)}</span></div>`;
+            })
+            .join("")
+        : `<div class="none">Keine passende Entität</div>`;
+      list.hidden = false;
+    };
+    const highlight = () => {
+      list.querySelectorAll(".opt").forEach((o, i) => o.classList.toggle("act", i === active));
+      list.querySelector(".opt.act")?.scrollIntoView({ block: "nearest" });
+    };
+    input.addEventListener("focus", () => {
+      // Typing replaces the current entity; the list starts unfiltered.
+      input.select();
+      show(false);
+    });
+    input.addEventListener("input", () => show());
+    input.addEventListener("blur", () => setTimeout(() => (list.hidden = true), 150));
+    input.addEventListener("keydown", (ev) => {
+      if (list.hidden) return;
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        if (!items.length) return;
+        active = (active + (ev.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        highlight();
+      } else if (ev.key === "Enter" && active >= 0) {
+        ev.preventDefault();
+        pick(items[active]);
+      } else if (ev.key === "Escape") {
+        list.hidden = true;
+      }
+    });
+    // mousedown so the choice lands before the input loses focus.
+    list.addEventListener("mousedown", (ev) => {
+      const opt = (ev.target as HTMLElement).closest<HTMLElement>(".opt");
+      if (!opt) return;
+      ev.preventDefault();
+      pick(opt.dataset.id!);
+    });
   }
 
   private applyProp(input: HTMLInputElement | HTMLSelectElement): void {
     if (!this.sel) return;
     const item = this.find(this.sel) as any;
     if (!item) return;
+    if (input.dataset.p === "entity" && (item.entity ?? "") === input.value.trim()) return;
     this.snapshot();
     const k = input.dataset.p!;
     let v: any;
@@ -774,6 +973,9 @@ export class FloorplanCardEditor extends HTMLElement {
       else item.show_label = false;
     } else if (this.sel.kind === "hotspot" && k === "action" && v === "auto") {
       delete item.action;
+    } else if (this.sel.kind === "hotspot" && ((k === "hold_action" && v === "more-info") || (k === "double_tap_action" && v === "none"))) {
+      // Defaults are not stored.
+      delete item[k];
     } else if (k === "texture_sel") {
       if (v === "custom") {
         // Wait for the URL before touching the item.
@@ -872,14 +1074,14 @@ export class FloorplanCardEditor extends HTMLElement {
   }
 
   private onDown(ev: PointerEvent): void {
-    if (ev.button === 2) return;
     (ev.currentTarget as HTMLElement).focus();
     const p = this.toPlan(ev);
     const target = (ev.target as Element).closest<SVGElement>("[data-kind]");
     const capture = () => (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
 
-    if (ev.button === 1) {
-      this.drag = { type: "pan", start: { x: ev.clientX, y: ev.clientY }, vb: { x: this.vb.x, y: this.vb.y }, moved: false };
+    // Right or middle button: dragging pans the view in every tool; a plain right click ends a drawing.
+    if (ev.button === 1 || ev.button === 2) {
+      this.drag = { type: "pan", start: { x: ev.clientX, y: ev.clientY }, vb: { x: this.vb.x, y: this.vb.y }, moved: false, right: ev.button === 2 };
       capture();
       return;
     }
@@ -931,18 +1133,6 @@ export class FloorplanCardEditor extends HTMLElement {
         capture();
         return;
       }
-      default: {
-        // Drawing tools act on release; dragging instead pans the view.
-        this.drag = { type: "pan", start: { x: ev.clientX, y: ev.clientY }, vb: { x: this.vb.x, y: this.vb.y }, moved: false, click: p };
-        capture();
-        return;
-      }
-    }
-  }
-
-  /** A click (press and release without dragging) with one of the drawing tools. */
-  private toolClick(p: Vec): void {
-    switch (this.tool) {
       case "wall": {
         const s = this.snap(p);
         if (this.draft.length) {
@@ -967,22 +1157,20 @@ export class FloorplanCardEditor extends HTMLElement {
             return;
           }
         }
-        this.draft.push(s);
-        this.render2d();
+        if (this.draft.length) {
+          this.draft.push(s);
+          this.render2d();
+          return;
+        }
+        this.drag = { type: "rect", tool: "room", start: s, end: s };
+        capture();
         return;
       }
       case "box":
       case "hotspot": {
         const s = this.snap(p);
-        if (!this.rectStart) {
-          this.rectStart = s;
-          this.cursor = s;
-          this.render2d();
-          return;
-        }
-        const start = this.rectStart;
-        this.rectStart = undefined;
-        this.finishRect(this.tool, start, s);
+        this.drag = { type: "rect", tool: this.tool, start: s, end: s };
+        capture();
         return;
       }
       case "door":
@@ -1116,6 +1304,10 @@ export class FloorplanCardEditor extends HTMLElement {
         }
         break;
       }
+      case "rect": {
+        d.end = this.snap(p);
+        break;
+      }
     }
     this.render2d();
   }
@@ -1137,12 +1329,16 @@ export class FloorplanCardEditor extends HTMLElement {
     if (!d) return;
     if (d.type === "pan") {
       if (d.moved) return;
-      if (d.click) this.toolClick(d.click);
+      if (d.right) this.finishDraft();
       else if (this.sel) {
         this.sel = undefined;
         this.renderProps();
         this.render2d();
       }
+      return;
+    }
+    if (d.type === "rect") {
+      this.finishRect(d.tool, d.start, d.end);
       return;
     }
     if (d.moved) {
@@ -1153,12 +1349,19 @@ export class FloorplanCardEditor extends HTMLElement {
     }
   }
 
-  private finishRect(tool: "box" | "hotspot", start: Vec, end: Vec): void {
+  private finishRect(tool: "box" | "room" | "hotspot", start: Vec, end: Vec): void {
     const x0 = Math.min(start.x, end.x);
     const y0 = Math.min(start.y, end.y);
     const x1 = Math.max(start.x, end.x);
     const y1 = Math.max(start.y, end.y);
     const big = x1 - x0 >= 20 && y1 - y0 >= 20;
+
+    if (tool === "room" && !big) {
+      // A click instead of a drag starts a polygon.
+      this.draft = [start];
+      this.render2d();
+      return;
+    }
 
     this.snapshot();
     if (tool === "hotspot") {
@@ -1209,7 +1412,6 @@ export class FloorplanCardEditor extends HTMLElement {
   private finishDraft(): void {
     if (this.tool === "room" && this.draft.length >= 3) return this.closeRoom();
     this.draft = [];
-    this.rectStart = undefined;
     this.render2d();
   }
 
@@ -1228,7 +1430,7 @@ export class FloorplanCardEditor extends HTMLElement {
     const tag = (ev.composedPath()[0] as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (ev.key === "Escape") {
-      if (this.draft.length || this.rectStart) this.finishDraft();
+      if (this.draft.length) this.finishDraft();
       else if (this.tool !== "select") this.setTool("select");
       else {
         this.sel = undefined;
@@ -1273,6 +1475,14 @@ export class FloorplanCardEditor extends HTMLElement {
       parts.push(
         `<image href="${esc(bg.image)}" x="${bg.x ?? 0}" y="${bg.y ?? 0}" width="${bg.width}" height="${bg.width * 4}" preserveAspectRatio="xMinYMin meet" opacity="${bg.opacity ?? 0.5}" style="pointer-events:none"/>`
       );
+    }
+
+    // The storey below, faded, as a tracing aid.
+    const below = this.floors[this.floorIdx - 1]?.floorplan;
+    if (below) {
+      for (const w of below.walls) {
+        parts.push(`<line x1="${w.x1}" y1="${w.y1}" x2="${w.x2}" y2="${w.y2}" class="ghost" stroke-width="${w.thickness ?? defT}" stroke-linecap="square"/>`);
+      }
     }
 
     // Rooms
@@ -1376,9 +1586,8 @@ export class FloorplanCardEditor extends HTMLElement {
       if (c) parts.push(this.measure(last.x, last.y, c.x, c.y, this.tool === "wall" ? defT : 0));
       for (const p of this.draft) parts.push(`<circle cx="${p.x}" cy="${p.y}" r="${px(4)}" class="draft-pt"/>`);
     }
-    if (this.rectStart && c) {
-      const start = this.rectStart;
-      const end = c;
+    if (this.drag?.type === "rect") {
+      const { start, end } = this.drag;
       const x = Math.min(start.x, end.x);
       const y = Math.min(start.y, end.y);
       const w = Math.abs(end.x - start.x);
@@ -1388,7 +1597,7 @@ export class FloorplanCardEditor extends HTMLElement {
         `<text x="${x + w / 2}" y="${y - px(8)}" class="measure" font-size="${px(12)}">${Math.round(w)} × ${Math.round(h)} cm</text>`
       );
     }
-    if (c && this.tool !== "select" && !this.drag && !this.rectStart) {
+    if (c && this.tool !== "select" && !this.drag) {
       if (this.tool === "door" || this.tool === "window") {
         const hit = this.nearestWall(c);
         if (hit) {
@@ -1427,6 +1636,11 @@ export class FloorplanCardEditor extends HTMLElement {
 }
 
 const WIDE_KEY = "floorplan-3d-card-editor-wide";
+const BASE_STYLE_ID = "fp3d-base";
+/** Always injected: on narrow screens HA shows its card preview below the editor, which only duplicates our 3D view. */
+const BASE_DIALOG_CSS = `
+@media (max-width: 999px) { .element-preview { display: none !important; } }
+`;
 const WIDE_STYLE_ID = "fp3d-wide";
 const WIDE_DIALOG_CSS = `
 ha-dialog, ha-md-dialog, ha-wa-dialog, ha-adaptive-dialog {
@@ -1487,7 +1701,20 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--f
 input[type=color] { padding: 2px; height: 34px; cursor: pointer; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fp-muted); }
 label.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--fp-text); cursor: pointer; }
-label.check input { width: 16px; height: 16px; accent-color: var(--fp-accent); flex: none; }
+/* Round checkboxes, drawn by us so they look the same on every device. */
+input[type=checkbox] {
+  -webkit-appearance: none; appearance: none; flex: none; width: 20px; height: 20px; margin: 0; padding: 0;
+  border: 2px solid var(--fp-muted); border-radius: 50%; background: transparent; cursor: pointer;
+  display: inline-grid; place-content: center; transition: background .15s, border-color .15s;
+}
+input[type=checkbox]::before {
+  content: ""; width: 10px; height: 10px; background: var(--fp-on-accent); transform: scale(0); transition: transform .12s;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type=checkbox]:checked { background: var(--fp-accent); border-color: var(--fp-accent); }
+input[type=checkbox]:checked::before { transform: scale(1); }
+input[type=checkbox]:hover { border-color: var(--fp-accent); }
+input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
 label.check span small { display: block; font-size: 11px; color: var(--fp-muted); margin-top: 2px; }
 label.check.disabled { cursor: not-allowed; color: var(--fp-muted); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
@@ -1500,7 +1727,13 @@ textarea { font-family: ui-monospace, monospace; font-size: 12px; }
 .layout { display: flex; flex-direction: column; gap: 12px; }
 .side { display: contents; }
 .wide-btn { order: 0; }
-.general-sec { order: 1; }
+.floors-sec, .general-sec { order: 1; }
+.floor-list { margin-bottom: 10px; }
+.floor-list:empty { display: none; }
+.floor-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+.floor-row label { flex: 1; }
+.floor-row button { height: 35px; }
+button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .main { order: 2; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .props { order: 3; }
 .extra { order: 4; }
@@ -1529,6 +1762,19 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .stats span { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--fp-surface-2); color: var(--fp-muted); }
 .stats b { color: var(--fp-text); }
 
+.combo { position: relative; }
+.combo-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; max-height: 280px; overflow-y: auto;
+  background: var(--fp-surface); border: 1px solid var(--fp-border); border-radius: 10px; padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.combo-list[hidden] { display: none; }
+.combo-list .opt { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
+.combo-list .opt b { font-weight: 500; font-size: 13px; color: var(--fp-text); }
+.combo-list .opt span { font-size: 11px; color: var(--fp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-list .opt:hover, .combo-list .opt.act { background: color-mix(in srgb, var(--fp-accent) 14%, transparent); }
+.combo-list .none { padding: 8px 10px; font-size: 13px; color: var(--fp-muted); }
+
 .seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 10px; background: var(--fp-surface-2); border: 1px solid var(--fp-border); }
 .seg button { border: none; background: transparent; border-radius: 7px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; }
 .seg button:hover { background: color-mix(in srgb, var(--fp-accent) 12%, transparent); }
@@ -1539,7 +1785,6 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .toolbar .sep { flex: 1; }
 .toolbar .actions button { padding: 6px 8px; }
 .toolbar .snap { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--fp-text); }
-.toolbar .snap input { width: 16px; height: 16px; accent-color: var(--fp-accent); }
 .hint { font-size: 12px; color: var(--fp-muted); padding: 6px 10px; border-radius: 8px; background: var(--fp-surface-2); }
 
 .canvas, .pane-3d .viewer3d {
@@ -1550,9 +1795,11 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .canvas:focus-visible { border-color: var(--fp-accent); }
 .canvas svg { width: 100%; height: 100%; display: block; user-select: none; }
 .canvas svg.drawing { cursor: crosshair; }
-.pane-2d, .pane-3d { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.pane-2d[hidden], .pane-3d[hidden] { display: none; }
-.pane-3d .row { margin-top: 0; }
+.tools2d { display: flex; flex-direction: column; gap: 8px; }
+.panes { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.pane-2d, .pane-3d { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.tools2d[hidden], .pane-2d[hidden], .pane-3d[hidden], .cam[hidden] { display: none; }
+.main .cam { margin-top: 0; }
 .main.both .canvas, .main.both .pane-3d .viewer3d { height: clamp(260px, 32vh, 480px); }
 
 .grid-minor { stroke: var(--divider-color, #ddd); opacity: .5; }
@@ -1561,6 +1808,7 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
 .room-name { text-anchor: middle; dominant-baseline: middle; fill: var(--fp-text); opacity: .6; pointer-events: none; font-weight: 600; }
 .room-area { text-anchor: middle; dominant-baseline: middle; fill: var(--fp-text); opacity: .55; pointer-events: none; }
 .wall { stroke: var(--fp-text); pointer-events: none; }
+.ghost { stroke: var(--fp-text); opacity: .13; pointer-events: none; }
 .wall.sel { stroke: var(--fp-accent); }
 .hit { stroke: transparent; cursor: pointer; }
 .gap { stroke: var(--fp-surface-2); pointer-events: none; }
@@ -1582,14 +1830,18 @@ details.sec > :not(summary) { margin: 0 14px 14px; }
   .side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .main { position: sticky; top: 0; }
   .canvas, .pane-3d .viewer3d { height: max(460px, calc(100vh - 260px)); }
-  .main.both .canvas, .main.both .pane-3d .viewer3d { height: max(240px, calc(50vh - 170px)); }
+  /* 2D + 3D: side by side, 2D on the left. */
+  .main.both .panes { flex-direction: row; }
+  .main.both .pane-2d, .main.both .pane-3d { flex: 1 1 0; }
+  .main.both .canvas, .main.both .pane-3d .viewer3d { height: max(460px, calc(100vh - 260px)); }
   .grid2 { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 
   /* Großansicht: the editor exactly fills the dialog; only the left column scrolls. */
   :host(.wide) .layout { height: 100%; align-items: stretch; }
   :host(.wide) .side { overflow-y: auto; padding-right: 4px; min-height: 0; }
   :host(.wide) .main { position: static; min-height: 0; overflow-y: auto; }
-  :host(.wide) .pane-2d, :host(.wide) .pane-3d { flex: 1 1 auto; min-height: auto; }
+  :host(.wide) .panes { flex: 1 1 0; }
+  :host(.wide) .pane-2d, :host(.wide) .pane-3d { flex: 1 1 0; }
   :host(.wide) .canvas, :host(.wide) .pane-3d .viewer3d { flex: 1 1 0; height: auto; min-height: 150px; }
 }
 `;

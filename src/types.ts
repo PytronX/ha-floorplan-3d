@@ -59,6 +59,10 @@ export interface Hotspot {
   label?: string;
   icon?: string;
   action?: HotspotAction;
+  /** Action on press-and-hold (default: more-info). */
+  hold_action?: HotspotAction;
+  /** Action on double click / double tap (default: none). */
+  double_tap_action?: HotspotAction;
   show_label?: boolean;
   color?: string;
 }
@@ -68,6 +72,12 @@ export interface Floorplan {
   openings: Opening[];
   rooms: Room[];
   hotspots: Hotspot[];
+}
+
+export interface Floor {
+  id: string;
+  name: string;
+  floorplan: Floorplan;
 }
 
 export interface Background {
@@ -106,7 +116,10 @@ export interface CardConfig {
   show_area?: boolean;
   camera?: CameraConfig;
   background?: Background;
-  floorplan: Floorplan;
+  /** Single-storey plan. Used when `floors` is not set. */
+  floorplan?: Floorplan;
+  /** Several storeys; the card shows one at a time with a switcher. */
+  floors?: Floor[];
 }
 
 // Minimal subset of the Home Assistant frontend types we use.
@@ -144,6 +157,24 @@ export function normalizeFloorplan(fp: Partial<Floorplan> | undefined): Floorpla
     rooms: fp?.rooms ?? [],
     hotspots: fp?.hotspots ?? [],
   };
+}
+
+const FLOOR_NAMES = ["Erdgeschoss", "Obergeschoss", "Dachgeschoss"];
+
+export function defaultFloorName(index: number): string {
+  return FLOOR_NAMES[index] ?? `${index}. Obergeschoss`;
+}
+
+/** All storeys of a config; a plain `floorplan` counts as one storey. */
+export function getFloors(cfg: Pick<CardConfig, "floors" | "floorplan">): Floor[] {
+  if (cfg.floors?.length) {
+    return cfg.floors.map((f, i) => ({
+      id: f.id || `f${i + 1}`,
+      name: f.name || defaultFloorName(i),
+      floorplan: normalizeFloorplan(f.floorplan),
+    }));
+  }
+  return [{ id: "f1", name: defaultFloorName(0), floorplan: normalizeFloorplan(cfg.floorplan) }];
 }
 
 export function uid(prefix: string): string {

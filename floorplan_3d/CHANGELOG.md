@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- **Etagen:** beliebig viele Stockwerke anlegen, benennen und löschen. Im Editor wird die Etage darunter blass eingeblendet. Auf der Karte schaltet man oben links zwischen den Etagen um.
+- Ansicht verschieben mit gedrückter **rechter** Maustaste in jedem Werkzeug. Rechtecke werden wieder mit der linken Maustaste aufgezogen.
+- Eigene Entitätensuche: Die Vorschläge erscheinen direkt unter dem Feld in der linken Spalte, ohne Dropdown-Pfeil, mit Name und Entitäts-ID.
+- Hitboxen haben neben der Klick-Aktion jetzt eine **Halten-** und eine **Doppelklick-Aktion**.
+- „2D + 3D“ zeigt Grundriss und 3D-Vorschau nebeneinander.
+- Auf dem Handy wird die doppelte Kartenvorschau von HA unter dem Editor ausgeblendet.
+- Einheitliche, runde Checkboxen auf allen Geräten.
+
 ## 0.3.4
 
 - Großansicht im aktuellen HA-Dialog: oben und unten gleich viel Abstand, linke und rechte Spalte reichen bis ganz nach unten.

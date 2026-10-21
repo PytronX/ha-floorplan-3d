@@ -19,8 +19,12 @@ export function domainOf(entityId: string): string {
   return entityId.split(".")[0];
 }
 
-export function resolveAction(h: Hotspot): Exclude<HotspotAction, "auto"> {
-  const a = h.action ?? "auto";
+export type Gesture = "tap" | "hold" | "double_tap";
+
+/** The configured action for a gesture; "auto" picks one from the entity's domain. */
+export function resolveAction(h: Hotspot, gesture: Gesture = "tap"): Exclude<HotspotAction, "auto"> {
+  const a =
+    gesture === "hold" ? (h.hold_action ?? "more-info") : gesture === "double_tap" ? (h.double_tap_action ?? "none") : (h.action ?? "auto");
   if (a !== "auto") return a;
   if (!h.entity) return "none";
   const d = domainOf(h.entity);
@@ -43,9 +47,9 @@ export function fireMoreInfo(node: HTMLElement, entityId: string): void {
   );
 }
 
-export async function runAction(hass: Hass, node: HTMLElement, h: Hotspot): Promise<void> {
+export async function runAction(hass: Hass, node: HTMLElement, h: Hotspot, gesture: Gesture = "tap"): Promise<void> {
   if (!h.entity) return;
-  const action = resolveAction(h);
+  const action = resolveAction(h, gesture);
   const entity_id = h.entity;
   const d = domainOf(entity_id);
   switch (action) {
