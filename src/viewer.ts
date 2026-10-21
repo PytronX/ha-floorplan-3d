@@ -338,14 +338,7 @@ export class Viewer {
     if (showLabels && (h.entity || h.label)) {
       const el = document.createElement("div");
       el.className = "fp3d-label";
-      el.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        this.onHotspot?.(h, "tap");
-      });
-      el.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this.onHotspot?.(h, "hold");
-      });
+      this.bindLabelGestures(el, h);
       const label = new CSS2DObject(el);
       label.position.set(0, (h.h / 2) * CM + 0.12, 0);
       mesh.add(label);
@@ -354,6 +347,49 @@ export class Viewer {
 
     this.hotspots.set(h.id, view);
     this.applyState(view);
+  }
+
+  /** The label sits above the hitbox, so it takes the same tap / double tap / hold gestures. */
+  private bindLabelGestures(el: HTMLElement, h: Hotspot): void {
+    let timer: number | undefined;
+    let start: { x: number; y: number } | undefined;
+    let held = false;
+    const cancel = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = undefined;
+    };
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.stopPropagation();
+      held = false;
+      start = { x: ev.clientX, y: ev.clientY };
+      cancel();
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        held = true;
+        this.onHotspot?.(h, "hold");
+      }, HOLD_MS);
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (start && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > 6) cancel();
+    });
+    el.addEventListener("pointerup", cancel);
+    el.addEventListener("pointercancel", cancel);
+    el.addEventListener("pointerleave", cancel);
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      // The release after a hold is not a tap.
+      if (held) {
+        held = false;
+        return;
+      }
+      this.onHotspot?.(h, "tap");
+    });
+    el.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      // Touch long-press also fires contextmenu; the hold has already run then.
+      if (!held) this.onHotspot?.(h, "hold");
+    });
   }
 
   private applyState(v: HotspotView): void {
@@ -440,7 +476,7 @@ export class Viewer {
         holdTimer = window.setTimeout(() => {
           consumed = true;
           this.onHotspot?.(hit, "hold");
-        }, 550);
+        }, HOLD_MS);
       }
     });
     el.addEventListener("pointermove", (ev) => {
@@ -563,6 +599,8 @@ export function centroid(points: [number, number][]): [number, number] {
   return [cx / (6 * a), cy / (6 * a)];
 }
 
+const HOLD_MS = 550;
+
 export const VIEWER_STYLES = `
 .fp3d-label {
   pointer-events: auto;
@@ -578,6 +616,9 @@ export const VIEWER_STYLES = `
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0,0,0,.3);
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
   transition: background .2s;
 }
 .fp3d-label.active { background: rgba(214, 150, 0, 0.92); }
