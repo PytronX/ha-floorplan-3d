@@ -1,0 +1,4 @@
+configuration:
+  register_resource:
+    name: Register dashboard resource automatically
+    description: Adds the card to Settings → Dashboards → Resources on every start.

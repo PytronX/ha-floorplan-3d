@@ -1,7 +1,7 @@
 import { FloorplanCard } from "./card";
 import { FloorplanCardEditor } from "./editor";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 if (!customElements.get("floorplan-3d-card")) customElements.define("floorplan-3d-card", FloorplanCard);
 if (!customElements.get("floorplan-3d-card-editor")) customElements.define("floorplan-3d-card-editor", FloorplanCardEditor);

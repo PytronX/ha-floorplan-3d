@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  card:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,10 +18,28 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - name: Check committed bundle is up to date
-        run: git diff --exit-code dist/
-  hacs:
+        run: git diff --exit-code floorplan_3d/www/
+
+  lint-app:
     runs-on: ubuntu-latest
     steps:
-      - uses: hacs/action@main
+      - uses: actions/checkout@v4
+      - uses: frenck/action-addon-linter@v2
         with:
-          category: plugin
+          path: ./floorplan_3d
+
+  build-app:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test build
+        uses: home-assistant/builder@master
+        with:
+          args: |
+            --test
+            --${{ matrix.arch }}
+            --target /data/floorplan_3d
+            --docker-hub ghcr.io/pytronx

@@ -4000,7 +4000,7 @@ label.check input { width: auto; }
 .extra summary { cursor: pointer; font-size: 14px; padding: 4px 0; }
 .extra .grid2, .extra textarea { margin-top: 6px; }
 textarea { font-family: monospace; font-size: 12px; }
-`;var R_="0.1.0";customElements.get("floorplan-3d-card")||customElements.define("floorplan-3d-card",ra);customElements.get("floorplan-3d-card-editor")||customElements.define("floorplan-3d-card-editor",oa);var aa=window;aa.customCards=aa.customCards||[];aa.customCards.some(i=>i.type==="floorplan-3d-card")||aa.customCards.push({type:"floorplan-3d-card",name:"3D Floorplan Card",description:"3D-Grundriss mit eingebautem Editor und klickbaren Hitboxen f\xFCr Entit\xE4ten.",preview:!0,documentationURL:"https://github.com/PytronX/ha-floorplan-3d"});console.info(`%c FLOORPLAN-3D-CARD %c v${R_} `,"color:#fff;background:#03a9f4;font-weight:700","color:#03a9f4");
+`;var R_="0.2.0";customElements.get("floorplan-3d-card")||customElements.define("floorplan-3d-card",ra);customElements.get("floorplan-3d-card-editor")||customElements.define("floorplan-3d-card-editor",oa);var aa=window;aa.customCards=aa.customCards||[];aa.customCards.some(i=>i.type==="floorplan-3d-card")||aa.customCards.push({type:"floorplan-3d-card",name:"3D Floorplan Card",description:"3D-Grundriss mit eingebautem Editor und klickbaren Hitboxen f\xFCr Entit\xE4ten.",preview:!0,documentationURL:"https://github.com/PytronX/ha-floorplan-3d"});console.info(`%c FLOORPLAN-3D-CARD %c v${R_} `,"color:#fff;background:#03a9f4;font-weight:700","color:#03a9f4");
 /*! Bundled license information:
 
 three/build/three.core.js:
