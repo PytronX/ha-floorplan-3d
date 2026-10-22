@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- **Objektbibliothek** wie in SweetHome 3D: Grundformen (Würfel/Quader, Kugel, Zylinder, Kegel, Pyramide, Ring, Halbkugel, Keil) und rund 30 Möbel und Leuchten (Sofa, Sessel, Betten, Schränke, Tische, Stühle, Küche, Bad, Büro, Treppe, Heizkörper, Auto …) mit 3D-Vorschaubildern, Suche und Kategorien. Anklicken und in den Grundriss klicken oder direkt hineinziehen. Danach verschieben, an den Griffpunkten drehen und skalieren, Farbe und Textur wählen, duplizieren (`Strg+D`), drehen (`R`) oder eine Hitbox darauf legen. Liste aller platzierten Objekte.
+- **Verschiedene Türen und Fenster:** Drehtür, Doppeltür, Glastür, Balkon-/Terrassentür, Schiebetür, Garagentor und Durchgang; Fenster ein-, zwei- und dreiflügelig, Festverglasung, Schiebefenster, bodentief und rund. Mit Rahmen und Griffen in 3D, passenden Symbolen im Grundriss, Anschlag und Öffnungsseite umschaltbar, eigene Rahmenfarbe.
+- **Eigene Info-Fenster** statt des Standard-Dialogs: Licht mit Helligkeitsregler, Farben und Weißtönen; Sensoren mit großer Anzeige und Verlaufsgrafik (6 Std./24 Std./7 Tage, Min/Ø/Max); Kamera mit Standbild und Live-Bild; Schalter, Rollladen mit Position, Heizung mit Zieltemperatur und Modus, Medienplayer, Schloss, Szenen/Skripte; Zeitleiste und letzte Änderungen für Ein/Aus-Entitäten. Auf dem Handy als Bottom-Sheet. Unter *Allgemein → Info-Fenster* lässt sich wieder der HA-Dialog wählen (`info_dialog: ha`).
+- **Lichter** leuchten deutlich kräftiger in ihrer echten Farbe (RGB, Farbton oder Farbtemperatur), mit Leuchtschein um die Lampe. Die Helligkeit bestimmt Lichtstärke und Schein und steht als Prozent im Label.
+- Fix: Türen öffneten sich in der 3D-Ansicht zur anderen Wandseite als im Grundriss.
+
 ## 0.4.1
 
 - Etage löschen, „Alles löschen“ und Import-Fehler zeigen einen eigenen Dialog im Editor statt der Browser-Meldung.
