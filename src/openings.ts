@@ -2,6 +2,8 @@ import * as THREE from "three";
 import type { Opening, OpeningType } from "./types";
 
 const CM = 0.01;
+/** Default colour of doors and window frames. */
+export const OPENING_WHITE = "#f4f4f1";
 
 export interface OpeningPreset {
   key: string;
@@ -15,7 +17,7 @@ export interface OpeningPreset {
 
 /** Doors and windows offered in the object library (and by the toolbar's door/window tools). */
 export const OPENING_PRESETS: OpeningPreset[] = [
-  { key: "door-single", label: "Drehtür", type: "door", style: "single", w: 90, h: 210, sill: 0 },
+  { key: "door-single", label: "Einflügelige Tür", type: "door", style: "single", w: 90, h: 210, sill: 0 },
   { key: "door-double", label: "Doppeltür", type: "door", style: "double", w: 140, h: 210, sill: 0 },
   { key: "door-glass", label: "Glastür", type: "door", style: "glass", w: 90, h: 210, sill: 0 },
   { key: "door-french", label: "Balkon- / Terrassentür", type: "door", style: "french", w: 140, h: 220, sill: 0 },
@@ -32,7 +34,7 @@ export const OPENING_PRESETS: OpeningPreset[] = [
 ];
 
 export const DOOR_STYLES: [string, string][] = [
-  ["single", "Drehtür"],
+  ["single", "Einflügelige Tür"],
   ["double", "Doppeltür"],
   ["glass", "Glastür"],
   ["french", "Balkon- / Terrassentür"],
@@ -63,8 +65,10 @@ export function openingPreview(p: OpeningPreset, wallMat: THREE.Material, glassM
     mesh.position.set(((x0 + x1) / 2) * CM, ((y0 + y1) / 2) * CM, 0);
     g.add(mesh);
   };
-  box(-m, 0, 0, H);
-  box(p.w, p.w + m, 0, H);
+  // Only a frame of wall around the opening, no posts down to the floor.
+  const y0 = Math.max(0, p.sill - m);
+  box(-m, 0, y0, H);
+  box(p.w, p.w + m, y0, H);
   box(0, p.w, top, H);
   box(0, p.w, Math.max(0, p.sill - m), p.sill);
   buildOpening(g, { id: "", wall: "", type: p.type, style: p.style, offset: p.w / 2, width: p.w, height: p.h, sill: p.sill }, 0, p.w, p.sill, top, t, glassMat, wallMat);
@@ -90,7 +94,7 @@ export function buildOpening(
 ): void {
   const style = op.style ?? "single";
   const door = op.type === "door";
-  const defColor = !door || style === "glass" || style === "french" ? "#f2f2f0" : style === "garage" ? "#d4d6d8" : "#8b5a2b";
+  const defColor = door && style === "garage" ? "#d4d6d8" : OPENING_WHITE;
   const mat = new THREE.MeshStandardMaterial({ color: op.color || defColor, roughness: 0.55 });
   const dark = new THREE.MeshStandardMaterial({ color: new THREE.Color(op.color || defColor).multiplyScalar(0.6), roughness: 0.7 });
   const metal = new THREE.MeshStandardMaterial({ color: 0xb9bdc3, roughness: 0.3, metalness: 0.7 });

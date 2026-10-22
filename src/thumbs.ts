@@ -46,8 +46,10 @@ export function libraryThumbnails(): Map<string, string> {
     const main = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.7 });
     shoot(item.id, buildCatalogObject(item.id, item.w, item.d, item.h, main), new THREE.Vector3(0.75, 0.6, 1));
   }
+  // Openings are shot from the side they open to, so the light moves round with the camera.
+  sun.position.set(2, 5, -6);
   for (const p of OPENING_PRESETS) {
-    const wall = new THREE.MeshStandardMaterial({ color: 0xe8e4dc, roughness: 0.85 });
+    const wall = new THREE.MeshStandardMaterial({ color: 0xcfc7b8, roughness: 0.85 });
     const glass = new THREE.MeshStandardMaterial({ color: 0x9fd3ff, transparent: true, opacity: 0.45, roughness: 0.1, depthWrite: false });
     shoot(p.key, openingPreview(p, wall, glass), new THREE.Vector3(0.35, 0.15, -1));
   }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- **Licht bleibt im Raum:** Eingeschaltete Lampen werfen jetzt Schatten, Wände halten ihr Licht also zurück und färben den Nachbarraum nicht mehr mit. Dazu kommt ein weiches Sonnenlicht mit Schatten unter den Möbeln, und Oberflächen spiegeln die Umgebung leicht.
+- **Realistischere Möbel:** Alle Möbel sind neu modelliert, mit abgerundeten Kanten, Holzmaserung, matten Stoffen, Griffen und Details. Zum Beispiel hat das Sofa jetzt Polster, Rückenkissen und Zierkissen, die Pflanze echte Blätter, Spüle, Waschbecken und Badewanne ein vertieftes Becken, und der Herd ein Glaskeramikfeld und eine Ofentür mit Fenster.
+- Türen und Fenster sind standardmäßig **weiß** (das Garagentor hellgrau). Eine eigene Rahmenfarbe geht weiterhin.
+- In der Objektbibliothek sind **Türen** und **Fenster** jetzt zwei eigene Kategorien.
+- „Drehtür“ heißt jetzt **„Einflügelige Tür“**.
+- Die Vorschaubilder der Fenster zeigen keine Wandstücke mehr unter dem Fenster bis zum Boden.
+
 ## 0.5.0
 
 - **Objektbibliothek** wie in SweetHome 3D: Grundformen (Würfel/Quader, Kugel, Zylinder, Kegel, Pyramide, Ring, Halbkugel, Keil) und rund 30 Möbel und Leuchten (Sofa, Sessel, Betten, Schränke, Tische, Stühle, Küche, Bad, Büro, Treppe, Heizkörper, Auto …) mit 3D-Vorschaubildern, Suche und Kategorien. Anklicken und in den Grundriss klicken oder direkt hineinziehen. Danach verschieben, an den Griffpunkten drehen und skalieren, Farbe und Textur wählen, duplizieren (`Strg+D`), drehen (`R`) oder eine Hitbox darauf legen. Liste aller platzierten Objekte.
