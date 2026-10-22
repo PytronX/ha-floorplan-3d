@@ -22,10 +22,21 @@ export interface Wall {
 
 export type OpeningType = "door" | "window";
 
+export type DoorStyle = "single" | "double" | "sliding" | "glass" | "french" | "garage" | "opening";
+export type WindowStyle = "single" | "double" | "triple" | "fixed" | "sliding" | "round";
+
 export interface Opening {
   id: string;
   wall: string;
   type: OpeningType;
+  /** Door or window kind; default "single". */
+  style?: DoorStyle | WindowStyle;
+  /** Hinge on the other side of the opening. */
+  flip?: boolean;
+  /** Opens to the other side of the wall. */
+  mirror?: boolean;
+  /** Colour of leaf and frame. */
+  color?: string;
   /** Distance of the opening centre from the wall start (cm). */
   offset: number;
   width: number;
@@ -67,11 +78,33 @@ export interface Hotspot {
   color?: string;
 }
 
+/** A piece of furniture or a basic shape from the object library. */
+export interface FloorObject {
+  id: string;
+  /** Catalog id, e.g. "box", "sphere", "sofa". */
+  type: string;
+  name?: string;
+  /** Centre of the footprint on the plan (cm). */
+  x: number;
+  y: number;
+  /** Height of the lower edge above the floor (cm). */
+  z?: number;
+  w: number;
+  d: number;
+  h: number;
+  /** Clockwise rotation on the plan in degrees. */
+  rotation?: number;
+  color?: string;
+  texture?: string;
+  texture_scale?: number;
+}
+
 export interface Floorplan {
   walls: Wall[];
   openings: Opening[];
   rooms: Room[];
   hotspots: Hotspot[];
+  objects: FloorObject[];
 }
 
 export interface Floor {
@@ -114,6 +147,8 @@ export interface CardConfig {
   show_labels?: boolean;
   /** Show each room's floor area in m² (default on). */
   show_area?: boolean;
+  /** Which info window opens for "more-info": the card's own (default) or Home Assistant's. */
+  info_dialog?: "card" | "ha";
   camera?: CameraConfig;
   background?: Background;
   /** Single-storey plan. Used when `floors` is not set. */
@@ -128,12 +163,15 @@ export interface HassEntity {
   state: string;
   attributes: Record<string, any>;
   last_changed?: string;
+  last_updated?: string;
 }
 
 export interface Hass {
   states: Record<string, HassEntity>;
   callService(domain: string, service: string, data?: Record<string, any>): Promise<unknown>;
   formatEntityState?(stateObj: HassEntity, state?: string): string;
+  callWS?<T = unknown>(msg: Record<string, unknown>): Promise<T>;
+  hassUrl?(path?: string): string;
   language?: string;
   themes?: { darkMode?: boolean };
 }
@@ -147,7 +185,7 @@ export const DEFAULTS = {
 };
 
 export function emptyFloorplan(): Floorplan {
-  return { walls: [], openings: [], rooms: [], hotspots: [] };
+  return { walls: [], openings: [], rooms: [], hotspots: [], objects: [] };
 }
 
 export function normalizeFloorplan(fp: Partial<Floorplan> | undefined): Floorplan {
@@ -156,6 +194,7 @@ export function normalizeFloorplan(fp: Partial<Floorplan> | undefined): Floorpla
     openings: fp?.openings ?? [],
     rooms: fp?.rooms ?? [],
     hotspots: fp?.hotspots ?? [],
+    objects: fp?.objects ?? [],
   };
 }
 

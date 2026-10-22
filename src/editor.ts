@@ -1,4 +1,7 @@
+import { CATALOG, CATEGORIES, catalogItem } from "./catalog";
 import { resolveAction } from "./ha";
+import { DOOR_STYLES, OPENING_PRESETS, WINDOW_STYLES, type OpeningPreset } from "./openings";
+import { libraryThumbnails } from "./thumbs";
 import {
   DEFAULTS,
   defaultFloorName,
@@ -9,6 +12,7 @@ import {
   uid,
   type CardConfig,
   type Floor,
+  type FloorObject,
   type Floorplan,
   type Hass,
   type Hotspot,
@@ -21,8 +25,8 @@ import { BUILTIN_PREFIX, BUILTIN_TEXTURES, defaultTextureSize, textureLabel } fr
 import { Viewer, VIEWER_STYLES, centroid } from "./viewer";
 
 type Tab = "2d" | "3d" | "both";
-type Tool = "select" | "wall" | "box" | "room" | "door" | "window" | "hotspot";
-type Kind = "wall" | "opening" | "room" | "hotspot";
+type Tool = "select" | "wall" | "box" | "room" | "door" | "window" | "hotspot" | "object";
+type Kind = "wall" | "opening" | "room" | "hotspot" | "object";
 interface Selection {
   kind: Kind;
   id: string;
@@ -39,6 +43,8 @@ type Drag =
   | { type: "vertex"; room: Room; idx: number; moved: boolean }
   | { type: "opening"; op: Opening; wall: Wall; moved: boolean }
   | { type: "resize"; hs: Hotspot; anchor: Vec; moved: boolean }
+  | { type: "orotate"; obj: FloorObject; moved: boolean }
+  | { type: "oresize"; obj: FloorObject; anchor: Vec; moved: boolean }
   | { type: "rect"; tool: "box" | "room" | "hotspot"; start: Vec; end: Vec };
 
 const TOOLS: { id: Tool; label: string; icon: string; hint: string }[] = [
@@ -50,6 +56,18 @@ const TOOLS: { id: Tool; label: string; icon: string; hint: string }[] = [
   { id: "window", label: "Fenster", icon: "M4 4h16v16H4zm2 2v5h5V6zm7 0v5h5V6zm-7 7v5h5v-5zm7 0v5h5v-5z", hint: "Auf eine Wand klicken, um ein Fenster einzusetzen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
   { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Rechteck aufziehen (oder klicken für 50×50 cm), danach eine Entität zuweisen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
 ];
+
+/** Library tab with the door and window presets, shown before the furniture categories. */
+const OPENINGS_CATEGORY = "Türen & Fenster";
+const LIB_CATEGORIES = [OPENINGS_CATEGORY, ...CATEGORIES];
+const LIB_KEY = "floorplan-3d-card-editor-lib";
+
+const rad = (deg: number) => (deg * Math.PI) / 180;
+/** Plan position of a point given in an object's own frame. */
+function objToPlan(o: FloorObject, lx: number, ly: number): Vec {
+  const r = rad(o.rotation ?? 0);
+  return { x: o.x + lx * Math.cos(r) - ly * Math.sin(r), y: o.y + lx * Math.sin(r) + ly * Math.cos(r) };
+}
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -81,6 +99,12 @@ export class FloorplanCardEditor extends HTMLElement {
   private wide = false;
   /** Item whose texture select is on "custom" but has no URL yet. */
   private customTextureFor?: string;
+  /** Library item waiting to be placed with the next click on the plan. */
+  private placing?: string;
+  /** Door/window preset used by the door and window tools. */
+  private openingPreset?: OpeningPreset;
+  private libCategory: string = OPENINGS_CATEGORY;
+  private libQuery = "";
 
   private svg!: SVGSVGElement;
   private propsEl!: HTMLDivElement;
@@ -195,12 +219,18 @@ export class FloorplanCardEditor extends HTMLElement {
 
   private commit(): void {
     const next: CardConfig = { ...this.config };
+    // Plans without furniture leave out the empty list.
+    const clean = (fp: Floorplan): Floorplan => {
+      const c = structuredClone(fp);
+      if (!c.objects.length) delete (c as Partial<Floorplan>).objects;
+      return c;
+    };
     // One storey keeps the simple `floorplan` format; several are stored as `floors`.
     if (this.floors.length > 1) {
-      next.floors = structuredClone(this.floors);
+      next.floors = this.floors.map((f) => ({ ...f, floorplan: clean(f.floorplan) }));
       delete next.floorplan;
     } else {
-      next.floorplan = structuredClone(this.fp);
+      next.floorplan = clean(this.fp);
       delete next.floors;
     }
     this.config = next;
@@ -257,8 +287,8 @@ export class FloorplanCardEditor extends HTMLElement {
     this.render();
   }
 
-  private find(sel: Selection): Wall | Opening | Room | Hotspot | undefined {
-    const list = { wall: this.fp.walls, opening: this.fp.openings, room: this.fp.rooms, hotspot: this.fp.hotspots }[sel.kind] as {
+  private find(sel: Selection): Wall | Opening | Room | Hotspot | FloorObject | undefined {
+    const list = { wall: this.fp.walls, opening: this.fp.openings, room: this.fp.rooms, hotspot: this.fp.hotspots, object: this.fp.objects }[sel.kind] as {
       id: string;
     }[];
     return list.find((x) => x.id === sel.id) as any;
@@ -273,19 +303,34 @@ export class FloorplanCardEditor extends HTMLElement {
       this.fp.openings = this.fp.openings.filter((o) => o.wall !== id);
     } else if (kind === "opening") this.fp.openings = this.fp.openings.filter((o) => o.id !== id);
     else if (kind === "room") this.fp.rooms = this.fp.rooms.filter((r) => r.id !== id);
+    else if (kind === "object") this.fp.objects = this.fp.objects.filter((o) => o.id !== id);
     else this.fp.hotspots = this.fp.hotspots.filter((h) => h.id !== id);
     this.sel = undefined;
     this.commit();
     this.render();
   }
 
-  private setTool(t: Tool): void {
+  private setTool(t: Tool, preset?: OpeningPreset): void {
     this.tool = t;
     this.draft = [];
     this.drag = undefined;
+    if (t !== "object") this.placing = undefined;
+    this.openingPreset = t === "door" || t === "window" ? preset : undefined;
     this.root.querySelectorAll<HTMLButtonElement>(".tool").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
-    this.hintEl.textContent = TOOLS.find((x) => x.id === t)!.hint;
+    this.hintEl.textContent = this.toolHint();
+    this.markLibrary();
     this.render2d();
+  }
+
+  private toolHint(): string {
+    if (this.tool === "object") {
+      const item = this.placing ? catalogItem(this.placing) : undefined;
+      return `In den Grundriss klicken, um „${item?.label ?? "Objekt"}“ zu platzieren. Esc = abbrechen.`;
+    }
+    if (this.openingPreset) {
+      return `Auf eine Wand klicken, um „${this.openingPreset.label}“ einzusetzen. Esc = abbrechen.`;
+    }
+    return TOOLS.find((x) => x.id === this.tool)!.hint;
   }
 
   // ------------------------------------------------------------------ layout
@@ -306,8 +351,15 @@ export class FloorplanCardEditor extends HTMLElement {
             <div class="seg floor-list"></div>
             <div class="floor-edit"></div>
           </section>
-          <section class="sec general-sec"><h3>Allgemein</h3><div class="general"></div></section>
           <section class="sec props"></section>
+          <section class="sec lib">
+            <div class="props-head"><h3>Objekte</h3><span class="lib-note">Anklicken und im Grundriss platzieren oder hineinziehen</span></div>
+            <input class="lib-search" type="search" placeholder="Suchen, z.B. Sofa, Kugel, Fenster …" autocomplete="off">
+            <div class="lib-cats"></div>
+            <div class="lib-grid"></div>
+            <details class="placed"><summary>Platzierte Objekte</summary><div class="placed-list"></div></details>
+          </section>
+          <section class="sec general-sec"><h3>Allgemein</h3><div class="general"></div></section>
           <details class="sec extra">
             <summary>Hintergrundbild (zum Nachzeichnen)</summary>
             <div class="bg grid2"></div>
@@ -393,6 +445,153 @@ export class FloorplanCardEditor extends HTMLElement {
       if (b) this.switchFloor(Number(b.dataset.floor));
     });
     this.renderFloors();
+    this.bindLibrary(canvas);
+  }
+
+  // ---------------------------------------------------------------- library
+
+  private bindLibrary(canvas: HTMLElement): void {
+    try {
+      const saved = localStorage.getItem(LIB_KEY);
+      if (saved && LIB_CATEGORIES.includes(saved)) this.libCategory = saved;
+    } catch {
+      /* storage unavailable */
+    }
+    const search = this.root.querySelector<HTMLInputElement>(".lib-search")!;
+    search.addEventListener("input", () => {
+      this.libQuery = search.value.trim().toLowerCase();
+      this.renderLibrary();
+    });
+    this.root.querySelector(".lib-cats")!.addEventListener("click", (ev) => {
+      const b = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-cat]");
+      if (!b) return;
+      this.libCategory = b.dataset.cat!;
+      try {
+        localStorage.setItem(LIB_KEY, this.libCategory);
+      } catch {
+        /* storage unavailable */
+      }
+      this.renderLibrary();
+    });
+    const grid = this.root.querySelector<HTMLDivElement>(".lib-grid")!;
+    grid.addEventListener("click", (ev) => {
+      const tile = (ev.target as HTMLElement).closest<HTMLButtonElement>(".tile");
+      if (tile) this.pickLibrary(tile.dataset.item!);
+    });
+    grid.addEventListener("dragstart", (ev) => {
+      const tile = (ev.target as HTMLElement).closest<HTMLElement>(".tile");
+      if (!tile || !ev.dataTransfer) return;
+      ev.dataTransfer.setData("text/x-fp3d-item", tile.dataset.item!);
+      ev.dataTransfer.effectAllowed = "copy";
+    });
+    canvas.addEventListener("dragover", (ev) => {
+      if (!ev.dataTransfer?.types.includes("text/x-fp3d-item")) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "copy";
+    });
+    canvas.addEventListener("drop", (ev) => {
+      const key = ev.dataTransfer?.getData("text/x-fp3d-item");
+      if (!key) return;
+      ev.preventDefault();
+      const p = this.toPlan(ev);
+      const preset = OPENING_PRESETS.find((x) => x.key === key);
+      if (preset) this.placeOpening(p, preset);
+      else this.placeObject(key, p);
+    });
+    this.root.querySelector(".placed-list")!.addEventListener("click", (ev) => {
+      const row = (ev.target as HTMLElement).closest<HTMLElement>("[data-obj]");
+      if (!row) return;
+      if (this.tool !== "select") this.setTool("select");
+      this.sel = { kind: "object", id: row.dataset.obj! };
+      this.render();
+    });
+    this.renderLibrary();
+  }
+
+  private renderLibrary(): void {
+    const cats = this.root.querySelector<HTMLDivElement>(".lib-cats");
+    const grid = this.root.querySelector<HTMLDivElement>(".lib-grid");
+    if (!cats || !grid) return;
+    const q = this.libQuery;
+    cats.innerHTML = LIB_CATEGORIES.map(
+      (c) => `<button data-cat="${esc(c)}" class="${!q && c === this.libCategory ? "on" : ""}">${esc(c)}</button>`
+    ).join("");
+    cats.classList.toggle("dim", !!q);
+    const thumbs = this.thumbs;
+    const tiles: { key: string; label: string }[] = [];
+    const match = (label: string, cat: string) => (q ? `${label} ${cat}`.toLowerCase().includes(q) : cat === this.libCategory);
+    for (const p of OPENING_PRESETS) if (match(p.label, OPENINGS_CATEGORY)) tiles.push({ key: p.key, label: p.label });
+    for (const c of CATALOG) if (match(c.label, c.category)) tiles.push({ key: c.id, label: c.label });
+    grid.innerHTML = tiles.length
+      ? tiles
+          .map(
+            (t) =>
+              `<button class="tile" draggable="true" data-item="${t.key}" title="${esc(t.label)}">${
+                thumbs?.get(t.key) ? `<img src="${thumbs.get(t.key)}" alt="" draggable="false">` : `<i></i>`
+              }<span>${esc(t.label)}</span></button>`
+          )
+          .join("")
+      : `<div class="empty">Nichts gefunden.</div>`;
+    this.markLibrary();
+    // Previews are rendered once, after the editor is on screen.
+    if (!thumbs && !this.thumbsPending) {
+      this.thumbsPending = true;
+      setTimeout(() => {
+        this.thumbs = libraryThumbnails();
+        if (this.isConnected) this.renderLibrary();
+      }, 60);
+    }
+  }
+
+  private thumbs?: Map<string, string>;
+  private thumbsPending = false;
+
+  /** Highlight the library tile whose item is about to be placed. */
+  private markLibrary(): void {
+    const active = this.placing ?? this.openingPreset?.key;
+    this.root.querySelectorAll<HTMLElement>(".lib-grid .tile").forEach((t) => t.classList.toggle("on", t.dataset.item === active));
+  }
+
+  private pickLibrary(key: string): void {
+    const preset = OPENING_PRESETS.find((p) => p.key === key);
+    if (preset) {
+      if (this.openingPreset?.key === key) return this.setTool("select");
+      return this.setTool(preset.type, preset);
+    }
+    if (this.placing === key) return this.setTool("select");
+    this.placing = key;
+    this.setTool("object");
+    this.root.querySelector<HTMLElement>(".canvas")?.focus();
+  }
+
+  private placeObject(type: string, p: Vec): void {
+    const item = catalogItem(type);
+    if (!item) return;
+    const s = this.snap(p);
+    const o: FloorObject = { id: uid("b"), type, x: s.x, y: s.y, w: item.w, d: item.d, h: item.h };
+    if (item.z) o.z = item.z;
+    this.snapshot();
+    this.fp.objects.push(o);
+    this.sel = { kind: "object", id: o.id };
+    this.commit();
+    if (this.tool !== "select") this.setTool("select");
+    this.render();
+  }
+
+  private renderPlaced(): void {
+    const list = this.root.querySelector<HTMLDivElement>(".placed-list");
+    if (!list) return;
+    const sum = this.root.querySelector<HTMLElement>(".placed summary")!;
+    sum.textContent = `Platzierte Objekte (${this.fp.objects.length})`;
+    list.innerHTML = this.fp.objects.length
+      ? this.fp.objects
+          .map((o) => {
+            const sel = this.sel?.kind === "object" && this.sel.id === o.id;
+            const name = o.name || catalogItem(o.type)?.label || o.type;
+            return `<div class="prow ${sel ? "on" : ""}" data-obj="${o.id}"><span class="dot" style="background:${esc(o.color || catalogItem(o.type)?.color || "#9aa7b4")}"></span><b>${esc(name)}</b><span>${Math.round(o.w)} × ${Math.round(o.d)} × ${Math.round(o.h)} cm</span></div>`;
+          })
+          .join("")
+      : `<div class="empty">Noch keine Objekte auf dieser Etage.</div>`;
   }
 
   // ----------------------------------------------------------------- floors
@@ -617,6 +816,7 @@ export class FloorplanCardEditor extends HTMLElement {
     this.render2d();
     this.renderProps();
     this.renderBackground();
+    this.renderPlaced();
   }
 
   // ---------------------------------------------------------- general fields
@@ -638,6 +838,12 @@ export class FloorplanCardEditor extends HTMLElement {
             ${[["visible", "immer sichtbar"], ["hover", "nur bei Mauszeiger"], ["hidden", "unsichtbar"]]
               .map(([v, l]) => `<option value="${v}" ${(c.hitbox_mode ?? "visible") === v ? "selected" : ""}>${l}</option>`)
               .join("")}
+          </select>
+        </label>
+        <label>Info-Fenster
+          <select data-k="info_dialog">
+            <option value="" ${c.info_dialog !== "ha" ? "selected" : ""}>Eigenes (Licht, Verlauf, Kamera …)</option>
+            <option value="ha" ${c.info_dialog === "ha" ? "selected" : ""}>Home Assistant Standard</option>
           </select>
         </label>
         <label class="check"><input type="checkbox" data-k="show_labels" ${c.show_labels !== false ? "checked" : ""}> Zustands-Labels anzeigen</label>
@@ -844,7 +1050,7 @@ export class FloorplanCardEditor extends HTMLElement {
     if (!this.sel || !item) {
       const n = this.fp;
       el.innerHTML = `<h3>Auswahl</h3><div class="empty">Klicke im Grundriss auf ein Element, um es hier zu bearbeiten.</div>
-        <div class="stats"><span><b>${n.walls.length}</b> Wände</span><span><b>${n.rooms.length}</b> Räume</span><span><b>${n.openings.length}</b> Türen/Fenster</span><span><b>${n.hotspots.length}</b> Hitboxen</span><span><b>${formatArea(n.rooms.reduce((a, r) => a + (r.points.length >= 3 ? roomArea(r.points) : 0), 0))}</b> gesamt</span></div>`;
+        <div class="stats"><span><b>${n.walls.length}</b> Wände</span><span><b>${n.rooms.length}</b> Räume</span><span><b>${n.openings.length}</b> Türen/Fenster</span><span><b>${n.hotspots.length}</b> Hitboxen</span><span><b>${n.objects.length}</b> Objekte</span><span><b>${formatArea(n.rooms.reduce((a, r) => a + (r.points.length >= 3 ? roomArea(r.points) : 0), 0))}</b> gesamt</span></div>`;
       return;
     }
     const num = (k: string, label: string, v: number | undefined, ph = "") =>
@@ -878,13 +1084,52 @@ export class FloorplanCardEditor extends HTMLElement {
       }
       case "opening": {
         const o = item as Opening;
+        const styles = o.type === "door" ? DOOR_STYLES : WINDOW_STYLES;
+        const cur = o.style ?? "single";
+        const hinged = o.type === "door" ? ["single", "glass", "sliding"].includes(cur) : cur === "single";
         title = o.type === "door" ? "Tür" : "Fenster";
         body =
           `<label>Typ<select data-p="type"><option value="door" ${o.type === "door" ? "selected" : ""}>Tür</option><option value="window" ${o.type === "window" ? "selected" : ""}>Fenster</option></select></label>` +
+          `<label>Ausführung<select data-p="style">${styles.map(([v, l]) => `<option value="${v}" ${cur === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` +
           num("width", "Breite (cm)", o.width) +
           num("height", "Höhe (cm)", o.height) +
           num("sill", "Brüstung (cm)", o.sill ?? (o.type === "door" ? 0 : 90)) +
-          num("offset", "Position auf Wand (cm)", round(o.offset));
+          num("offset", "Position auf Wand (cm)", round(o.offset)) +
+          color("color", "Farbe Rahmen / Türblatt", o.color, o.type === "door" && !["glass", "french"].includes(cur) ? (cur === "garage" ? "#d4d6d8" : "#8b5a2b") : "#f2f2f0") +
+          (hinged ? `<label class="check"><input type="checkbox" data-p="flip" ${o.flip ? "checked" : ""}> ${cur === "sliding" ? "Zur anderen Seite schieben" : "Anschlag links/rechts tauschen"}</label>` : "") +
+          (o.type === "door" && cur !== "opening" && cur !== "garage"
+            ? `<label class="check"><input type="checkbox" data-p="mirror" ${o.mirror ? "checked" : ""}> Zur anderen Wandseite öffnen</label>`
+            : "");
+        break;
+      }
+      case "object": {
+        const o = item as FloorObject;
+        const it = catalogItem(o.type);
+        title = it?.label ?? "Objekt";
+        const typeOpts = CATEGORIES.map(
+          (c) =>
+            `<optgroup label="${esc(c)}">${CATALOG.filter((x) => x.category === c)
+              .map((x) => `<option value="${x.id}" ${x.id === o.type ? "selected" : ""}>${esc(x.label)}</option>`)
+              .join("")}</optgroup>`
+        ).join("");
+        body =
+          txt("name", "Name", o.name, `placeholder="${esc(it?.label ?? "")}"`) +
+          `<label>Objekt<select data-p="type">${typeOpts}</select></label>` +
+          num("w", "Breite (cm)", round(o.w)) +
+          num("d", "Tiefe (cm)", round(o.d)) +
+          num("h", "Höhe (cm)", round(o.h)) +
+          num("z", "Höhe über Boden (cm)", o.z ?? 0) +
+          num("x", "X (cm)", round(o.x)) +
+          num("y", "Y (cm)", round(o.y)) +
+          num("rotation", "Drehung (°)", o.rotation ?? 0) +
+          color("color", "Farbe", o.color, it?.color ?? "#9aa7b4") +
+          this.textureFields(o.id, o.texture, o.texture_scale, undefined) +
+          `<div class="row wide obj-acts">
+            <button data-obj-act="rot">↻ 90° drehen</button>
+            <button data-obj-act="dup">Duplizieren</button>
+            <button data-obj-act="hitbox" title="Legt eine Hitbox in Größe dieses Objekts an, z.B. für eine Lampe">Hitbox darauf legen</button>
+          </div>
+          <div class="note wide">Ziehen verschiebt, der Punkt in der Ecke ändert die Größe, der Punkt davor dreht. Taste R dreht um 90°, Strg+D dupliziert.</div>`;
         break;
       }
       case "room": {
@@ -924,6 +1169,14 @@ export class FloorplanCardEditor extends HTMLElement {
     el.querySelector("[data-act-del]")!.addEventListener("click", () => this.deleteSelection());
     el.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-p]").forEach((input) =>
       input.addEventListener("change", () => this.applyProp(input))
+    );
+    el.querySelectorAll<HTMLButtonElement>("[data-obj-act]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const act = b.dataset.objAct;
+        if (act === "rot") this.rotateObject(90);
+        else if (act === "dup") this.duplicateObject();
+        else if (act === "hitbox") this.hitboxFromObject();
+      })
     );
     const entityInput = el.querySelector<HTMLInputElement>(".entity-input");
     if (entityInput) this.bindEntityCombo(entityInput, el.querySelector<HTMLDivElement>(".combo-list")!);
@@ -993,6 +1246,44 @@ export class FloorplanCardEditor extends HTMLElement {
     });
   }
 
+  private rotateObject(by: number): void {
+    const o = this.sel?.kind === "object" ? this.fp.objects.find((x) => x.id === this.sel!.id) : undefined;
+    if (!o) return;
+    this.snapshot();
+    const deg = (((o.rotation ?? 0) + by) % 360 + 360) % 360;
+    if (deg) o.rotation = deg;
+    else delete o.rotation;
+    this.commit();
+    this.render();
+  }
+
+  private duplicateObject(): void {
+    const o = this.sel?.kind === "object" ? this.fp.objects.find((x) => x.id === this.sel!.id) : undefined;
+    if (!o) return;
+    this.snapshot();
+    const copy: FloorObject = { ...structuredClone(o), id: uid("b"), x: o.x + 20, y: o.y + 20 };
+    this.fp.objects.push(copy);
+    this.sel = { kind: "object", id: copy.id };
+    this.commit();
+    this.render();
+  }
+
+  /** A hitbox covering the selected object, e.g. to switch a lamp by clicking it. */
+  private hitboxFromObject(): void {
+    const o = this.sel?.kind === "object" ? this.fp.objects.find((x) => x.id === this.sel!.id) : undefined;
+    if (!o) return;
+    const r = rad(o.rotation ?? 0);
+    const w = Math.abs(o.w * Math.cos(r)) + Math.abs(o.d * Math.sin(r));
+    const d = Math.abs(o.w * Math.sin(r)) + Math.abs(o.d * Math.cos(r));
+    this.snapshot();
+    const h: Hotspot = { id: uid("h"), x: o.x, y: o.y, z: o.z ?? 0, w: round(w + 4), d: round(d + 4), h: round(o.h + 4), label: o.name };
+    if (!h.label) delete h.label;
+    this.fp.hotspots.push(h);
+    this.sel = { kind: "hotspot", id: h.id };
+    this.commit();
+    this.render();
+  }
+
   private applyProp(input: HTMLInputElement | HTMLSelectElement): void {
     if (!this.sel) return;
     const item = this.find(this.sel) as any;
@@ -1012,6 +1303,27 @@ export class FloorplanCardEditor extends HTMLElement {
         w.x2 = round(w.x1 + ((w.x2 - w.x1) / len) * v);
         w.y2 = round(w.y1 + ((w.y2 - w.y1) / len) * v);
       }
+    } else if (this.sel.kind === "opening" && k === "type") {
+      // Each type has its own styles and default sizes.
+      if (item.type !== v) {
+        item.type = v;
+        delete item.style;
+        delete item.flip;
+        delete item.mirror;
+        item.sill = v === "door" ? 0 : 90;
+      }
+    } else if (this.sel.kind === "opening" && k === "style") {
+      if (v === "single") delete item.style;
+      else item.style = v;
+    } else if (this.sel.kind === "opening" && (k === "flip" || k === "mirror")) {
+      if (v) item[k] = true;
+      else delete item[k];
+    } else if (this.sel.kind === "object" && (k === "rotation" || k === "z")) {
+      const n = k === "rotation" ? ((((v ?? 0) % 360) + 360) % 360) : (v ?? 0);
+      if (n) item[k] = n;
+      else delete item[k];
+    } else if (this.sel.kind === "object" && k === "type") {
+      item.type = v ?? item.type;
     } else if (this.sel.kind === "hotspot" && k === "show_label") {
       if (v) delete item.show_label;
       else item.show_label = false;
@@ -1055,6 +1367,7 @@ export class FloorplanCardEditor extends HTMLElement {
     for (const w of this.fp.walls) pts.push({ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 });
     for (const r of this.fp.rooms) for (const [x, y] of r.points) pts.push({ x, y });
     for (const h of this.fp.hotspots) pts.push({ x: h.x, y: h.y });
+    for (const o of this.fp.objects) pts.push({ x: o.x, y: o.y });
     if (!pts.length) {
       this.vb = { x: -100, y: -100, w: 1100 };
       return;
@@ -1153,6 +1466,14 @@ export class FloorplanCardEditor extends HTMLElement {
           const hs = this.fp.hotspots.find((h) => h.id === id)!;
           this.snapshot();
           this.drag = { type: "resize", hs, anchor: { x: hs.x - hs.w / 2, y: hs.y - hs.d / 2 }, moved: false };
+        } else if (kind === "obj-resize") {
+          const obj = this.fp.objects.find((o) => o.id === id)!;
+          this.snapshot();
+          this.drag = { type: "oresize", obj, anchor: objToPlan(obj, -obj.w / 2, -obj.d / 2), moved: false };
+        } else if (kind === "obj-rotate") {
+          const obj = this.fp.objects.find((o) => o.id === id)!;
+          this.snapshot();
+          this.drag = { type: "orotate", obj, moved: false };
         } else {
           const sel = { kind: kind as Kind, id };
           const changed = this.sel?.id !== id;
@@ -1218,31 +1539,42 @@ export class FloorplanCardEditor extends HTMLElement {
         return;
       }
       case "door":
-      case "window": {
-        const hit = this.nearestWall(p);
-        if (!hit) {
-          this.hintEl.textContent = "Bitte direkt auf eine Wand klicken.";
-          return;
-        }
-        const len = Math.hypot(hit.wall.x2 - hit.wall.x1, hit.wall.y2 - hit.wall.y1);
-        const width = Math.min(this.tool === "door" ? 90 : 120, len);
-        const op: Opening = {
-          id: uid("o"),
-          wall: hit.wall.id,
-          type: this.tool,
-          offset: Math.max(width / 2, Math.min(len - width / 2, this.gridSnap(hit.offset))),
-          width,
-          height: this.tool === "door" ? 210 : 130,
-          sill: this.tool === "door" ? 0 : 90,
-        };
-        this.snapshot();
-        this.fp.openings.push(op);
-        this.sel = { kind: "opening", id: op.id };
-        this.commit();
-        this.render();
+      case "window":
+        this.placeOpening(p, this.openingPreset ?? this.defaultPreset(this.tool));
         return;
-      }
+      case "object":
+        if (this.placing) this.placeObject(this.placing, p);
+        return;
     }
+  }
+
+  private defaultPreset(type: "door" | "window"): OpeningPreset {
+    return OPENING_PRESETS.find((x) => x.key === (type === "door" ? "door-single" : "window-double"))!;
+  }
+
+  private placeOpening(p: Vec, preset: OpeningPreset): void {
+    const hit = this.nearestWall(p);
+    if (!hit) {
+      this.hintEl.textContent = "Bitte direkt auf eine Wand klicken.";
+      return;
+    }
+    const len = Math.hypot(hit.wall.x2 - hit.wall.x1, hit.wall.y2 - hit.wall.y1);
+    const width = Math.min(preset.w, len);
+    const op: Opening = {
+      id: uid("o"),
+      wall: hit.wall.id,
+      type: preset.type,
+      offset: Math.max(width / 2, Math.min(len - width / 2, this.gridSnap(hit.offset))),
+      width,
+      height: preset.h,
+      sill: preset.sill,
+    };
+    if (preset.style !== "single") op.style = preset.style;
+    this.snapshot();
+    this.fp.openings.push(op);
+    this.sel = { kind: "opening", id: op.id };
+    this.commit();
+    this.render();
   }
 
   private connectedEnds(q: Vec): { wall: Wall; end: 1 | 2 }[] {
@@ -1259,7 +1591,7 @@ export class FloorplanCardEditor extends HTMLElement {
     const d = this.drag;
     if (!d) {
       if (this.tool !== "select") {
-        this.cursor = this.tool === "door" || this.tool === "window" ? p : this.snap(p);
+        this.cursor = this.tool === "door" || this.tool === "window" || this.tool === "object" ? p : this.snap(p);
         this.render2d();
       }
       return;
@@ -1315,6 +1647,28 @@ export class FloorplanCardEditor extends HTMLElement {
         d.moved = true;
         break;
       }
+      case "orotate": {
+        let deg = (Math.atan2(p.y - d.obj.y, p.x - d.obj.x) * 180) / Math.PI + 90;
+        if (this.snapEnabled && !ev.shiftKey) deg = Math.round(deg / 15) * 15;
+        deg = ((Math.round(deg * 10) / 10) % 360 + 360) % 360;
+        if (deg) d.obj.rotation = deg;
+        else delete d.obj.rotation;
+        d.moved = true;
+        break;
+      }
+      case "oresize": {
+        const r = rad(d.obj.rotation ?? 0);
+        const vx = p.x - d.anchor.x;
+        const vy = p.y - d.anchor.y;
+        const w = Math.max(5, this.gridSnap(vx * Math.cos(r) + vy * Math.sin(r)));
+        const dd = Math.max(5, this.gridSnap(-vx * Math.sin(r) + vy * Math.cos(r)));
+        d.obj.w = w;
+        d.obj.d = dd;
+        d.obj.x = round(d.anchor.x + (w / 2) * Math.cos(r) - (dd / 2) * Math.sin(r));
+        d.obj.y = round(d.anchor.y + (w / 2) * Math.sin(r) + (dd / 2) * Math.cos(r));
+        d.moved = true;
+        break;
+      }
       case "move": {
         let dx = p.x - d.start.x;
         let dy = p.y - d.start.y;
@@ -1342,7 +1696,7 @@ export class FloorplanCardEditor extends HTMLElement {
           }
         } else if (d.sel.kind === "room") {
           item.points = orig.points.map(([x, y]: Point) => [x + dx, y + dy]);
-        } else if (d.sel.kind === "hotspot") {
+        } else if (d.sel.kind === "hotspot" || d.sel.kind === "object") {
           item.x = orig.x + dx;
           item.y = orig.y + dy;
         }
@@ -1474,6 +1828,7 @@ export class FloorplanCardEditor extends HTMLElement {
     const tag = (ev.composedPath()[0] as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (ev.key === "Escape") {
+      ev.stopPropagation();
       if (this.draft.length) this.finishDraft();
       else if (this.tool !== "select") this.setTool("select");
       else {
@@ -1491,6 +1846,11 @@ export class FloorplanCardEditor extends HTMLElement {
       this.redo();
     } else if (ev.key === "Enter") {
       this.finishDraft();
+    } else if ((ev.key === "r" || ev.key === "R") && !ev.ctrlKey && !ev.metaKey && this.sel?.kind === "object") {
+      this.rotateObject(ev.shiftKey ? -90 : 90);
+    } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "d" && this.sel?.kind === "object") {
+      ev.preventDefault();
+      this.duplicateObject();
     }
   }
 
@@ -1546,6 +1906,23 @@ export class FloorplanCardEditor extends HTMLElement {
       }
     }
 
+    // Furniture and shapes, seen from above
+    for (const o of this.fp.objects) {
+      const item = catalogItem(o.type);
+      const selO = isSel("object", o.id);
+      const fill = esc(o.color || item?.color || "#9aa7b4");
+      const attrs = `fill="${fill}" class="obj-shape ${selO ? "sel" : ""}" stroke-width="${px(selO ? 2.5 : 1.2)}"`;
+      const shape = item?.round
+        ? `<ellipse cx="0" cy="0" rx="${o.w / 2}" ry="${o.d / 2}" ${attrs}/>`
+        : `<rect x="${-o.w / 2}" y="${-o.d / 2}" width="${o.w}" height="${o.d}" rx="${Math.min(px(3), o.w / 4, o.d / 4)}" ${attrs}/>` +
+          // The front edge, so the orientation can be seen.
+          `<line x1="${-o.w * 0.3}" y1="${o.d / 2 - Math.min(px(3), o.d / 4)}" x2="${o.w * 0.3}" y2="${o.d / 2 - Math.min(px(3), o.d / 4)}" class="obj-front" stroke-width="${px(2)}"/>`;
+      parts.push(`<g data-kind="object" data-id="${o.id}" class="obj" transform="translate(${o.x} ${o.y}) rotate(${o.rotation ?? 0})">${shape}</g>`);
+      if (Math.min(o.w, o.d) * s > 34) {
+        parts.push(`<text x="${o.x}" y="${o.y}" class="obj-name" font-size="${px(10)}">${esc(o.name || item?.label || o.type)}</text>`);
+      }
+    }
+
     // Walls
     for (const w of this.fp.walls) {
       const t = w.thickness ?? defT;
@@ -1569,23 +1946,7 @@ export class FloorplanCardEditor extends HTMLElement {
       const b = { x: w.x1 + ux * (o.offset + o.width / 2), y: w.y1 + uy * (o.offset + o.width / 2) };
       const selO = isSel("opening", o.id);
       parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="gap" stroke-width="${t + px(1)}"/>`);
-      if (o.type === "window") {
-        const nx = -uy * t * 0.25;
-        const ny = ux * t * 0.25;
-        parts.push(
-          `<line x1="${a.x + nx}" y1="${a.y + ny}" x2="${b.x + nx}" y2="${b.y + ny}" class="win ${selO ? "sel" : ""}" stroke-width="${px(selO ? 3 : 1.5)}"/>`,
-          `<line x1="${a.x - nx}" y1="${a.y - ny}" x2="${b.x - nx}" y2="${b.y - ny}" class="win ${selO ? "sel" : ""}" stroke-width="${px(selO ? 3 : 1.5)}"/>`
-        );
-      } else {
-        // Leaf + swing arc, hinge at `a`, opening towards the left-hand normal.
-        const nx = uy;
-        const ny = -ux;
-        const tip = { x: a.x + nx * o.width, y: a.y + ny * o.width };
-        parts.push(
-          `<line x1="${a.x}" y1="${a.y}" x2="${tip.x}" y2="${tip.y}" class="door ${selO ? "sel" : ""}" stroke-width="${px(selO ? 3 : 2)}"/>`,
-          `<path d="M ${tip.x} ${tip.y} A ${o.width} ${o.width} 0 0 1 ${b.x} ${b.y}" class="door-arc ${selO ? "sel" : ""}" stroke-width="${px(1)}"/>`
-        );
-      }
+      parts.push(this.openingSymbol(o, a, b, ux, uy, t, selO));
       parts.push(
         `<line data-kind="opening" data-id="${o.id}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="hit" stroke-width="${Math.max(t, px(16))}"/>`
       );
@@ -1619,6 +1980,19 @@ export class FloorplanCardEditor extends HTMLElement {
     } else if (sel?.kind === "hotspot") {
       const h = this.fp.hotspots.find((x) => x.id === sel.id);
       if (h) parts.push(handle(h.x + h.w / 2, h.y + h.d / 2, `data-kind="hs-resize" data-id="${h.id}"`));
+    } else if (sel?.kind === "object") {
+      const o = this.fp.objects.find((x) => x.id === sel.id);
+      if (o) {
+        const corner = objToPlan(o, o.w / 2, o.d / 2);
+        const edge = objToPlan(o, 0, -o.d / 2);
+        const rot = objToPlan(o, 0, -o.d / 2 - px(28));
+        parts.push(`<line x1="${edge.x}" y1="${edge.y}" x2="${rot.x}" y2="${rot.y}" class="rot-line" stroke-width="${px(1.5)}"/>`);
+        parts.push(handle(rot.x, rot.y, `data-kind="obj-rotate" data-id="${o.id}" class="handle rot"`).replace('class="handle"', ""));
+        parts.push(handle(corner.x, corner.y, `data-kind="obj-resize" data-id="${o.id}"`));
+        parts.push(
+          `<text x="${o.x}" y="${o.y + Math.max(o.d, o.w) / 2 + px(16)}" class="measure" font-size="${px(12)}">${Math.round(o.w)} × ${Math.round(o.d)} × ${Math.round(o.h)} cm${o.rotation ? ` · ${Math.round(o.rotation)}°` : ""}</text>`
+        );
+      }
     }
 
     // Drafts
@@ -1647,12 +2021,22 @@ export class FloorplanCardEditor extends HTMLElement {
         if (hit) {
           const w = hit.wall;
           const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
-          const width = this.tool === "door" ? 90 : 120;
+          const width = Math.min(len, (this.openingPreset ?? this.defaultPreset(this.tool)).w);
           const off = Math.max(width / 2, Math.min(len - width / 2, hit.offset));
           const ux = (w.x2 - w.x1) / len;
           const uy = (w.y2 - w.y1) / len;
           parts.push(
             `<line x1="${w.x1 + ux * (off - width / 2)}" y1="${w.y1 + uy * (off - width / 2)}" x2="${w.x1 + ux * (off + width / 2)}" y2="${w.y1 + uy * (off + width / 2)}" class="draft" stroke-width="${(w.thickness ?? defT) + px(4)}"/>`
+          );
+        }
+      } else if (this.tool === "object") {
+        const item = this.placing ? catalogItem(this.placing) : undefined;
+        if (item) {
+          const g = this.snap(c);
+          parts.push(
+            item.round
+              ? `<ellipse cx="${g.x}" cy="${g.y}" rx="${item.w / 2}" ry="${item.d / 2}" class="draft-rect" stroke-width="${px(2)}"/>`
+              : `<rect x="${g.x - item.w / 2}" y="${g.y - item.d / 2}" width="${item.w}" height="${item.d}" class="draft-rect" stroke-width="${px(2)}"/>`
           );
         }
       } else {
@@ -1662,6 +2046,70 @@ export class FloorplanCardEditor extends HTMLElement {
 
     this.svg.innerHTML = parts.join("");
     this.svg.classList.toggle("drawing", this.tool !== "select");
+  }
+
+  /** Plan symbol of a door or window between a and b (wall direction ux/uy, thickness t). */
+  private openingSymbol(o: Opening, a: Vec, b: Vec, ux: number, uy: number, t: number, sel: boolean): string {
+    const px = (n: number) => n / this.scale;
+    const cls = sel ? "sel" : "";
+    const style = o.style ?? "single";
+    const line = (p: Vec, q: Vec, c: string, w: number, extra = "") =>
+      `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" class="${c} ${cls}" stroke-width="${px(sel ? w + 1 : w)}" ${extra}/>`;
+    const at = (p: Vec, du: number, dn: number, nx: number, ny: number): Vec => ({ x: p.x + ux * du + nx * dn, y: p.y + uy * du + ny * dn });
+    const w = Math.hypot(b.x - a.x, b.y - a.y);
+
+    if (o.type === "window") {
+      // Across the wall: n points to one face.
+      const nx = -uy;
+      const ny = ux;
+      const out: string[] = [line(at(a, 0, t * 0.3, nx, ny), at(b, 0, t * 0.3, nx, ny), "win", 1.2), line(at(a, 0, -t * 0.3, nx, ny), at(b, 0, -t * 0.3, nx, ny), "win", 1.2)];
+      if (style === "sliding") {
+        out.push(line(at(a, 0, t * 0.08, nx, ny), at(a, w * 0.55, t * 0.08, nx, ny), "win", 2));
+        out.push(line(at(a, w * 0.45, -t * 0.08, nx, ny), at(b, 0, -t * 0.08, nx, ny), "win", 2));
+      } else {
+        out.push(line(a, b, "win", style === "fixed" ? 1 : 2));
+        const n = style === "triple" ? 3 : style === "double" ? 2 : 1;
+        for (let i = 1; i < n; i++) out.push(line(at(a, (w * i) / n, t * 0.3, nx, ny), at(a, (w * i) / n, -t * 0.3, nx, ny), "win", 1.5));
+        if (style === "round") {
+          const c = at(a, w / 2, 0, nx, ny);
+          out.push(`<circle cx="${c.x}" cy="${c.y}" r="${Math.min(w / 2, t * 0.45)}" class="win ${cls}" fill="none" stroke-width="${px(1.2)}"/>`);
+        }
+      }
+      return out.join("");
+    }
+
+    // Doors open towards (uy, -ux); `mirror` flips the side, `flip` moves the hinge.
+    const sgn = o.mirror ? -1 : 1;
+    const nx = uy * sgn;
+    const ny = -ux * sgn;
+    const glass = style === "glass" || style === "french";
+    const c = glass ? "door glass" : "door";
+    const swing = (hinge: Vec, other: Vec, width: number, towardsB: boolean) => {
+      const tip = { x: hinge.x + nx * width, y: hinge.y + ny * width };
+      const sweep = (towardsB ? 1 : 0) ^ (o.mirror ? 1 : 0);
+      return (
+        line(hinge, tip, c, 2) +
+        `<path d="M ${tip.x} ${tip.y} A ${width} ${width} 0 0 ${sweep} ${other.x} ${other.y}" class="door-arc ${cls}" stroke-width="${px(1)}"/>`
+      );
+    };
+    switch (style) {
+      case "opening":
+        return line(at(a, 0, t / 2, -uy, ux), at(a, 0, -t / 2, -uy, ux), "door", 1.5) + line(at(b, 0, t / 2, -uy, ux), at(b, 0, -t / 2, -uy, ux), "door", 1.5);
+      case "garage":
+        return line(a, b, "door", 2.5, `stroke-dasharray="${px(6)} ${px(4)}"`);
+      case "sliding": {
+        const off = t / 2 + 3;
+        const shift = o.flip ? w * 0.5 : -w * 0.5;
+        return line(at(a, shift - 2, off, nx, ny), at(b, shift + 2, off, nx, ny), "door", 3) + line(at(a, Math.min(0, shift) - 4, off + 4, nx, ny), at(b, Math.max(0, shift) + 4, off + 4, nx, ny), "door-arc", 1);
+      }
+      case "double":
+      case "french": {
+        const m = at(a, w / 2, 0, nx, ny);
+        return swing(a, m, w / 2, true) + swing(b, m, w / 2, false);
+      }
+      default:
+        return o.flip ? swing(b, a, w, false) : swing(a, b, w, true);
+    }
   }
 
   private measure(x1: number, y1: number, x2: number, y2: number, t: number): string {
@@ -1771,7 +2219,7 @@ textarea { font-family: ui-monospace, monospace; font-size: 12px; }
 .layout { display: flex; flex-direction: column; gap: 12px; }
 .side { display: contents; }
 .wide-btn { order: 0; }
-.floors-sec, .general-sec { order: 1; }
+.floors-sec { order: 1; }
 .floor-list { margin-bottom: 10px; }
 .floor-list:empty { display: none; }
 .floor-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
@@ -1779,8 +2227,8 @@ textarea { font-family: ui-monospace, monospace; font-size: 12px; }
 .floor-row button { height: 35px; }
 button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .main { order: 2; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.props { order: 3; }
-.extra { order: 4; }
+.props, .lib { order: 3; }
+.general-sec, .extra { order: 4; }
 
 .sec { background: var(--fp-surface); border: 1px solid var(--fp-border); border-radius: var(--fp-radius); padding: 14px; }
 details.sec { padding: 0; }
@@ -1817,6 +2265,39 @@ dialog.ask p { margin: 0 0 18px; font-size: 14px; line-height: 1.45; color: var(
 .ask-actions button { padding: 8px 14px; }
 button.danger-fill { background: var(--error-color, #db4437); border-color: transparent; color: #fff; }
 button.danger-fill:hover { filter: brightness(1.1); border-color: transparent; }
+
+.lib-note { font-size: 11px; color: var(--fp-muted); text-align: right; }
+.lib-search { margin-bottom: 8px; }
+.lib-cats { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.lib-cats button { padding: 4px 9px; font-size: 12px; border-radius: 999px; }
+.lib-cats.dim button { opacity: .55; }
+.lib-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px;
+  max-height: 300px; overflow-y: auto; padding: 2px; margin: -2px;
+}
+.lib-grid .empty { grid-column: 1 / -1; font-size: 13px; color: var(--fp-muted); padding: 8px 2px; }
+.tile {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px 7px; border-radius: 10px;
+  background: var(--fp-surface-2); cursor: grab; min-width: 0;
+}
+.tile img, .tile i { width: 64px; height: 64px; display: block; object-fit: contain; pointer-events: none; }
+.tile i { border-radius: 8px; background: color-mix(in srgb, var(--fp-muted) 15%, transparent); }
+.tile span { font-size: 11px; line-height: 1.2; text-align: center; color: var(--fp-text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tile:hover { border-color: var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 10%, var(--fp-surface-2)); }
+.tile.on { border-color: var(--fp-accent); box-shadow: 0 0 0 2px var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 16%, var(--fp-surface-2)); }
+.tile.on span { color: var(--fp-text); }
+details.placed { margin-top: 10px; }
+details.placed > summary { cursor: pointer; font-size: 13px; color: var(--fp-muted); padding: 4px 0; }
+.placed-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.placed-list .empty { font-size: 12px; color: var(--fp-muted); }
+.prow { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.prow b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow span:last-child { font-size: 11px; color: var(--fp-muted); }
+.prow .dot { width: 12px; height: 12px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); }
+.prow:hover { background: var(--fp-surface-2); }
+.prow.on { background: color-mix(in srgb, var(--fp-accent) 16%, transparent); }
+.obj-acts { margin-top: 0; }
+.obj-acts button { flex: 1 1 auto; }
 
 .combo { position: relative; }
 .combo-list {
@@ -1870,6 +2351,14 @@ button.danger-fill:hover { filter: brightness(1.1); border-color: transparent; }
 .gap { stroke: var(--fp-surface-2); pointer-events: none; }
 .win { stroke: #3b8fd9; pointer-events: none; }
 .door, .door-arc { stroke: #8b5a2b; fill: none; pointer-events: none; }
+.door.glass { stroke: #3b8fd9; }
+.obj { cursor: move; }
+.obj-shape { fill-opacity: .55; stroke: color-mix(in srgb, var(--fp-text) 55%, transparent); }
+.obj-shape.sel { stroke: var(--fp-accent); fill-opacity: .7; }
+.obj-front { stroke: color-mix(in srgb, var(--fp-text) 45%, transparent); pointer-events: none; }
+.obj-name { text-anchor: middle; dominant-baseline: middle; fill: var(--fp-text); opacity: .75; pointer-events: none; paint-order: stroke; stroke: var(--fp-surface-2); stroke-width: 2px; }
+.rot-line { stroke: var(--fp-accent); stroke-dasharray: 3 2; pointer-events: none; }
+.handle.rot { fill: var(--fp-accent); stroke: #fff; cursor: grab; }
 .win.sel, .door.sel, .door-arc.sel { stroke: var(--fp-accent); }
 .hotspot { fill: rgba(63,167,255,.18); stroke: #3fa7ff; cursor: move; }
 .hotspot.unbound { fill: rgba(255,152,0,.15); stroke: #ff9800; }

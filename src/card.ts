@@ -2,6 +2,7 @@ import { runAction, type Gesture } from "./ha";
 import { DEFAULTS, getFloors, type CardConfig, type Floor, type Hass, type Hotspot } from "./types";
 import { Viewer, VIEWER_STYLES } from "./viewer";
 import { EXAMPLE_FLOORPLAN } from "./example";
+import { InfoPopup, POPUP_STYLES } from "./popup";
 
 export class FloorplanCard extends HTMLElement {
   private _config?: CardConfig;
@@ -15,6 +16,7 @@ export class FloorplanCard extends HTMLElement {
   private floorIdx = 0;
   /** A tap waiting to see whether a second one turns it into a double tap. */
   private pendingTap?: { id: string; timer: number };
+  private popup?: InfoPopup;
 
   static getConfigElement(): HTMLElement {
     return document.createElement("floorplan-3d-card-editor");
@@ -57,6 +59,7 @@ export class FloorplanCard extends HTMLElement {
         .floors button:hover { background: color-mix(in srgb, var(--primary-color, #03a9f4) 14%, transparent); }
         .floors button.on { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); }
         ${VIEWER_STYLES}
+        ${POPUP_STYLES}
       </style>
       <ha-card>
         <div class="title"></div>
@@ -148,6 +151,7 @@ export class FloorplanCard extends HTMLElement {
   set hass(hass: Hass) {
     this._hass = hass;
     this.viewer?.setHass(hass);
+    this.popup?.update(hass);
   }
 
   get hass(): Hass | undefined {
@@ -180,6 +184,7 @@ export class FloorplanCard extends HTMLElement {
   disconnectedCallback(): void {
     window.removeEventListener("resize", this.onWindowResize);
     document.removeEventListener("fullscreenchange", this.onWindowResize);
+    this.popup?.close();
     // Free the WebGL context; HA detaches cards when switching views.
     this.viewer?.dispose();
     this.viewer = undefined;
@@ -205,6 +210,15 @@ export class FloorplanCard extends HTMLElement {
 
   private run(h: Hotspot, gesture: Gesture): void {
     if (!this._hass) return;
-    runAction(this._hass, this, h, gesture).catch((err) => console.error("floorplan-3d-card:", err));
+    const own = this._config?.info_dialog !== "ha";
+    runAction(this._hass, this, h, gesture, own ? (id) => this.openInfo(id) : undefined).catch((err) =>
+      console.error("floorplan-3d-card:", err)
+    );
+  }
+
+  private openInfo(entityId: string): void {
+    if (!this._hass) return;
+    this.popup ??= new InfoPopup(this.root, this);
+    this.popup.open(this._hass, entityId);
   }
 }

@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { domainOf, formatState, friendlyName, isActive } from "./ha";
+import { buildCatalogObject, catalogItem } from "./catalog";
+import { buildOpening } from "./openings";
+import { domainOf, formatState, friendlyName, isActive, lightBrightness, lightColor } from "./ha";
 import { TextureCache, defaultTextureSize } from "./textures";
-import { DEFAULTS, formatArea, normalizeFloorplan, roomArea, type CameraConfig, type CardConfig, type Hass, type Hotspot, type Opening, type Wall } from "./types";
+import { DEFAULTS, formatArea, normalizeFloorplan, roomArea, type CameraConfig, type CardConfig, type FloorObject, type Hass, type Hotspot, type Opening, type Wall } from "./types";
 
 const CM = 0.01;
 const HITBOX_IDLE = 0x3fa7ff;
@@ -15,6 +17,7 @@ interface HotspotView {
   edges: THREE.LineSegments;
   label?: CSS2DObject;
   light?: THREE.PointLight;
+  glow?: THREE.Sprite;
   active: boolean;
 }
 
@@ -40,6 +43,7 @@ export class Viewer {
   private hasView = false;
   private disposed = false;
   private textures = new TextureCache(() => this.requestRender());
+  private glowTexture?: THREE.Texture;
 
   constructor() {
     this.element = document.createElement("div");
@@ -134,6 +138,7 @@ export class Viewer {
     this.controls.dispose();
     this.clearWorld();
     this.textures.dispose();
+    this.glowTexture?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.element.remove();
@@ -216,7 +221,6 @@ export class Viewer {
       roughness: 0.1,
       depthWrite: false,
     });
-    const doorMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.7 });
     for (const wall of fp.walls) {
       const ops = fp.openings.filter((o) => o.wall === wall.id);
       const mat = this.surfaceMaterial(
@@ -225,8 +229,11 @@ export class Viewer {
         wall.color || cfg.wall_color || DEFAULTS.wall_color,
         wall.color
       );
-      this.buildWall(wall, ops, mat, glassMat, doorMat);
+      this.buildWall(wall, ops, mat, glassMat);
     }
+
+    // Furniture and shapes
+    for (const o of fp.objects) this.buildObject(o);
 
     // Hotspots
     for (const h of fp.hotspots) this.buildHotspot(h);
@@ -253,8 +260,7 @@ export class Viewer {
     wall: Wall,
     openings: Opening[],
     wallMat: THREE.Material,
-    glassMat: THREE.Material,
-    doorMat: THREE.Material
+    glassMat: THREE.Material
   ): void {
     const cfg = this.config!;
     const dx = wall.x2 - wall.x1;
@@ -293,22 +299,20 @@ export class Viewer {
       if (a > cursor) piece(cursor, a, 0, top(cursor), top(a), t, wallMat);
       piece(a, b, 0, sill, sill, t, wallMat);
       piece(a, b, opTop, top(a), top(b), t, wallMat);
-      if (op.type === "window") {
-        piece(a, b, sill, opTop, opTop, Math.max(1, t * 0.15), glassMat);
-      } else {
-        // Door leaf, opened ~65 degrees around the hinge at `a`.
-        const pivot = new THREE.Group();
-        pivot.position.set(a * CM, 0, 0);
-        pivot.rotation.y = -1.13;
-        const w = b - a;
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(w * CM, (opTop - 1) * CM, 4 * CM), doorMat);
-        leaf.position.set((w / 2) * CM, ((opTop - 1) / 2) * CM, 0);
-        pivot.add(leaf);
-        group.add(pivot);
-      }
+      buildOpening(group, op, a, b, sill, opTop, t, glassMat, wallMat);
       cursor = Math.max(cursor, b);
     }
     piece(cursor, len + t / 2, 0, top(cursor), top(len + t / 2), t, wallMat);
+  }
+
+  private buildObject(o: FloorObject): void {
+    const item = catalogItem(o.type);
+    const main = this.surfaceMaterial(o.texture, o.texture_scale, o.color || item?.color || "#9aa7b4", o.color);
+    main.roughness = 0.7;
+    const g = buildCatalogObject(o.type, o.w, o.d, o.h, main);
+    g.position.set(o.x * CM, (o.z ?? 0) * CM, o.y * CM);
+    g.rotation.y = -THREE.MathUtils.degToRad(o.rotation ?? 0);
+    this.world.add(g);
   }
 
   private buildHotspot(h: Hotspot): void {
@@ -328,10 +332,19 @@ export class Viewer {
     const view: HotspotView = { data: h, mesh, edges, active: false };
 
     if (h.entity && domainOf(h.entity) === "light") {
-      const light = new THREE.PointLight(0xffd59a, 0, 6, 1.6);
+      const light = new THREE.PointLight(0xffd59a, 0, 8, 1.2);
       light.position.copy(mesh.position);
       this.world.add(light);
       view.light = light;
+      // A soft halo in the light's colour, so colour and brightness read even in daylight.
+      const glow = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: this.glow(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+      );
+      glow.position.copy(mesh.position);
+      glow.visible = false;
+      glow.renderOrder = 11;
+      this.world.add(glow);
+      view.glow = glow;
     }
 
     const showLabels = this.config!.show_labels !== false && h.show_label !== false;
@@ -398,16 +411,36 @@ export class Viewer {
     v.active = isActive(s);
     this.styleHotspot(v);
 
-    if (v.light) {
-      const bri = (s?.attributes.brightness as number | undefined) ?? 255;
-      v.light.intensity = v.active ? 2.2 * (bri / 255) : 0;
-      const rgb = s?.attributes.rgb_color as [number, number, number] | undefined;
-      if (rgb) v.light.color.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
+    const light = v.light ? this.lightLook(s) : undefined;
+    if (v.light && light) {
+      const f = v.active ? light.level : 0;
+      v.light.color.copy(light.color);
+      // Brightness drives both the light that falls on the room and the halo around the lamp.
+      v.light.intensity = v.active ? 1.5 + 10 * f : 0;
+      v.light.distance = 3 + 4 * f;
+      if (v.glow) {
+        const size = Math.max(0.5, Math.max(h.w, h.d) * CM * 1.6) * (0.7 + 0.6 * f);
+        v.glow.visible = v.active;
+        v.glow.scale.set(size, size, 1);
+        const m = v.glow.material as THREE.SpriteMaterial;
+        m.color.copy(light.color);
+        m.opacity = 0.35 + 0.65 * f;
+      }
     }
 
     if (v.label) {
       const el = v.label.element;
       el.classList.toggle("active", v.active);
+      if (light && v.active) {
+        const c = light.color;
+        el.classList.add("lit");
+        el.style.setProperty("--fp3d-lit", `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${0.55 + 0.4 * light.level})`);
+        el.style.color = c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.55 ? "#1b1b1b" : "#fff";
+      } else {
+        el.classList.remove("lit");
+        el.style.removeProperty("--fp3d-lit");
+        el.style.color = "";
+      }
       el.replaceChildren();
       if (h.icon) {
         const icon = document.createElement("ha-icon");
@@ -423,6 +456,7 @@ export class Viewer {
         const st = document.createElement("span");
         st.className = "state";
         st.textContent = formatState(this.hass, s);
+        if (light && v.active && s?.attributes.brightness != null) st.textContent += ` · ${Math.round(light.level * 100)} %`;
         text.append(n, st);
       } else {
         text.textContent = name;
@@ -431,11 +465,40 @@ export class Viewer {
     }
   }
 
+  /** Colour (sRGB, full saturation) and brightness 0..1 of a light entity. */
+  private lightLook(s: Hass["states"][string] | undefined): { color: THREE.Color; level: number } {
+    const [r, g, b] = lightColor(s);
+    const color = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+    return { color, level: lightBrightness(s) };
+  }
+
+  private glow(): THREE.Texture {
+    if (this.glowTexture) return this.glowTexture;
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const ctx = c.getContext("2d")!;
+    const grd = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.25, "rgba(255,255,255,.6)");
+    grd.addColorStop(0.6, "rgba(255,255,255,.15)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 128, 128);
+    this.glowTexture = new THREE.CanvasTexture(c);
+    this.glowTexture.colorSpace = THREE.SRGBColorSpace;
+    return this.glowTexture;
+  }
+
   private styleHotspot(v: HotspotView): void {
     const mode = this.config?.hitbox_mode ?? "visible";
     const hovered = this.hovered === v.data.id;
     const color = v.data.color ? new THREE.Color(v.data.color) : new THREE.Color(v.active ? HITBOX_ACTIVE : HITBOX_IDLE);
     if (v.data.color && v.active) color.lerp(new THREE.Color(HITBOX_ACTIVE), 0.5);
+    if (v.light && v.active) {
+      // A lit lamp shows its own colour.
+      const look = this.lightLook(v.data.entity ? this.hass?.states[v.data.entity] : undefined);
+      color.copy(look.color);
+    }
     let fill = v.active ? 0.32 : 0.1;
     let line = v.active ? 0.9 : 0.55;
     if (mode === "hidden" || (mode === "hover" && !hovered)) {
@@ -622,6 +685,7 @@ export const VIEWER_STYLES = `
   transition: background .2s;
 }
 .fp3d-label.active { background: rgba(214, 150, 0, 0.92); }
+.fp3d-label.lit { background: var(--fp3d-lit); box-shadow: 0 0 14px var(--fp3d-lit), 0 1px 4px rgba(0,0,0,.3); }
 .fp3d-label ha-icon { --mdc-icon-size: 16px; }
 .fp3d-label > span { display: flex; flex-direction: column; }
 .fp3d-label .name { opacity: .8; font-size: 10px; }
