@@ -1,6 +1,6 @@
 import { CATALOG, CATEGORIES, catalogItem } from "./catalog";
 import { resolveAction } from "./ha";
-import { DOOR_STYLES, OPENING_PRESETS, WINDOW_STYLES, type OpeningPreset } from "./openings";
+import { DOOR_STYLES, OPENING_PRESETS, OPENING_WHITE, WINDOW_STYLES, type OpeningPreset } from "./openings";
 import { libraryThumbnails } from "./thumbs";
 import {
   DEFAULTS,
@@ -57,9 +57,10 @@ const TOOLS: { id: Tool; label: string; icon: string; hint: string }[] = [
   { id: "hotspot", label: "Hitbox", icon: "M12 2 3 7v10l9 5 9-5V7zm0 2.3L18.7 8 12 11.7 5.3 8zM5 9.7l6 3.3v6.6l-6-3.3zm8 9.9V13l6-3.3v6.6z", hint: "Rechteck aufziehen (oder klicken für 50×50 cm), danach eine Entität zuweisen. Rechte Maustaste gedrückt halten und ziehen = Ansicht verschieben." },
 ];
 
-/** Library tab with the door and window presets, shown before the furniture categories. */
-const OPENINGS_CATEGORY = "Türen & Fenster";
-const LIB_CATEGORIES = [OPENINGS_CATEGORY, ...CATEGORIES];
+/** Library tabs with the door and window presets, shown before the furniture categories. */
+const DOORS_CATEGORY = "Türen";
+const WINDOWS_CATEGORY = "Fenster";
+const LIB_CATEGORIES = [DOORS_CATEGORY, WINDOWS_CATEGORY, ...CATEGORIES];
 const LIB_KEY = "floorplan-3d-card-editor-lib";
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -103,7 +104,7 @@ export class FloorplanCardEditor extends HTMLElement {
   private placing?: string;
   /** Door/window preset used by the door and window tools. */
   private openingPreset?: OpeningPreset;
-  private libCategory: string = OPENINGS_CATEGORY;
+  private libCategory: string = DOORS_CATEGORY;
   private libQuery = "";
 
   private svg!: SVGSVGElement;
@@ -520,7 +521,9 @@ export class FloorplanCardEditor extends HTMLElement {
     const thumbs = this.thumbs;
     const tiles: { key: string; label: string }[] = [];
     const match = (label: string, cat: string) => (q ? `${label} ${cat}`.toLowerCase().includes(q) : cat === this.libCategory);
-    for (const p of OPENING_PRESETS) if (match(p.label, OPENINGS_CATEGORY)) tiles.push({ key: p.key, label: p.label });
+    for (const p of OPENING_PRESETS) {
+      if (match(p.label, p.type === "door" ? DOORS_CATEGORY : WINDOWS_CATEGORY)) tiles.push({ key: p.key, label: p.label });
+    }
     for (const c of CATALOG) if (match(c.label, c.category)) tiles.push({ key: c.id, label: c.label });
     grid.innerHTML = tiles.length
       ? tiles
@@ -1095,7 +1098,7 @@ export class FloorplanCardEditor extends HTMLElement {
           num("height", "Höhe (cm)", o.height) +
           num("sill", "Brüstung (cm)", o.sill ?? (o.type === "door" ? 0 : 90)) +
           num("offset", "Position auf Wand (cm)", round(o.offset)) +
-          color("color", "Farbe Rahmen / Türblatt", o.color, o.type === "door" && !["glass", "french"].includes(cur) ? (cur === "garage" ? "#d4d6d8" : "#8b5a2b") : "#f2f2f0") +
+          color("color", "Farbe Rahmen / Türblatt", o.color, o.type === "door" && cur === "garage" ? "#d4d6d8" : OPENING_WHITE) +
           (hinged ? `<label class="check"><input type="checkbox" data-p="flip" ${o.flip ? "checked" : ""}> ${cur === "sliding" ? "Zur anderen Seite schieben" : "Anschlag links/rechts tauschen"}</label>` : "") +
           (o.type === "door" && cur !== "opening" && cur !== "garage"
             ? `<label class="check"><input type="checkbox" data-p="mirror" ${o.mirror ? "checked" : ""}> Zur anderen Wandseite öffnen</label>`

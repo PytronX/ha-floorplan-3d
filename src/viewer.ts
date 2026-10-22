@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { buildCatalogObject, catalogItem } from "./catalog";
 import { buildOpening } from "./openings";
 import { domainOf, formatState, friendlyName, isActive, lightBrightness, lightColor } from "./ha";
@@ -44,6 +45,8 @@ export class Viewer {
   private disposed = false;
   private textures = new TextureCache(() => this.requestRender());
   private glowTexture?: THREE.Texture;
+  private sun = new THREE.DirectionalLight(0xffffff, 1.3);
+  private envMap?: THREE.Texture;
 
   constructor() {
     this.element = document.createElement("div");
@@ -53,6 +56,9 @@ export class Viewer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Shadows keep each lamp's light inside its room and ground the furniture.
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%;";
     this.element.appendChild(this.renderer.domElement);
 
@@ -65,10 +71,18 @@ export class Viewer {
     this.controls.screenSpacePanning = false;
     this.controls.addEventListener("change", () => this.requestRender());
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f70, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(6, 12, 4);
-    this.scene.add(sun);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f70, 1.15));
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.normalBias = 0.02;
+    this.scene.add(this.sun, this.sun.target);
+    // Soft reflections for metal, glass and glossy surfaces.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    this.scene.environment = this.envMap;
+    this.scene.environmentIntensity = 0.45;
     this.scene.add(this.world);
 
     this.bindPointer();
@@ -139,6 +153,7 @@ export class Viewer {
     this.clearWorld();
     this.textures.dispose();
     this.glowTexture?.dispose();
+    this.envMap?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.element.remove();
@@ -192,6 +207,7 @@ export class Viewer {
         )
       );
       mesh.position.y = 0.002;
+      mesh.userData.floor = true;
       this.world.add(mesh);
 
       const showName = cfg.show_room_names !== false && !!room.name;
@@ -237,6 +253,8 @@ export class Viewer {
 
     // Hotspots
     for (const h of fp.hotspots) this.buildHotspot(h);
+
+    this.setupShadows();
   }
 
   /** Material for a wall or floor. With a texture the colour only tints it when set explicitly. */
@@ -312,7 +330,41 @@ export class Viewer {
     const g = buildCatalogObject(o.type, o.w, o.d, o.h, main);
     g.position.set(o.x * CM, (o.z ?? 0) * CM, o.y * CM);
     g.rotation.y = -THREE.MathUtils.degToRad(o.rotation ?? 0);
+    g.userData.object = true;
     this.world.add(g);
+  }
+
+  /** Which meshes cast and receive shadows, and the sun's shadow area. */
+  private setupShadows(): void {
+    const lamps = [...this.hotspots.values()].filter((v) => v.light).map((v) => v.light!.position);
+    this.world.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m.userData.hotspot) return;
+      const mat = m.material as THREE.MeshStandardMaterial;
+      m.receiveShadow = true;
+      // Glass and glowing lamp shades let the light through.
+      m.castShadow = !m.userData.floor && !mat.transparent && !(mat.emissiveIntensity > 0 && mat.emissive?.getHex());
+    });
+    // A lamp object around a light source must not swallow its light.
+    for (const g of this.world.children) {
+      if (!g.userData.object) continue;
+      const box = new THREE.Box3().setFromObject(g).expandByScalar(0.05);
+      if (lamps.some((p) => box.containsPoint(p))) {
+        g.traverse((o) => ((o as THREE.Mesh).castShadow = false));
+      }
+    }
+    const box = new THREE.Box3().setFromObject(this.world);
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const r = box.getBoundingSphere(new THREE.Sphere()).radius + 1;
+    this.sun.target.position.copy(c);
+    this.sun.position.copy(c).add(new THREE.Vector3(6, 12, 4).normalize().multiplyScalar(r * 2));
+    const cam = this.sun.shadow.camera;
+    cam.left = cam.bottom = -r;
+    cam.right = cam.top = r;
+    cam.near = 0.1;
+    cam.far = r * 4;
+    cam.updateProjectionMatrix();
   }
 
   private buildHotspot(h: Hotspot): void {
@@ -334,6 +386,10 @@ export class Viewer {
     if (h.entity && domainOf(h.entity) === "light") {
       const light = new THREE.PointLight(0xffd59a, 0, 8, 1.2);
       light.position.copy(mesh.position);
+      light.shadow.mapSize.set(512, 512);
+      light.shadow.bias = -0.002;
+      light.shadow.normalBias = 0.03;
+      light.shadow.camera.near = 0.05;
       this.world.add(light);
       view.light = light;
       // A soft halo in the light's colour, so colour and brightness read even in daylight.
@@ -416,8 +472,10 @@ export class Viewer {
       const f = v.active ? light.level : 0;
       v.light.color.copy(light.color);
       // Brightness drives both the light that falls on the room and the halo around the lamp.
-      v.light.intensity = v.active ? 1.5 + 10 * f : 0;
-      v.light.distance = 3 + 4 * f;
+      v.light.intensity = v.active ? 2 + 12 * f : 0;
+      v.light.distance = 5 + 5 * f;
+      // Only lamps that are on need their (costly) shadow maps.
+      v.light.castShadow = v.active;
       if (v.glow) {
         const size = Math.max(0.5, Math.max(h.w, h.d) * CM * 1.6) * (0.7 + 0.6 * f);
         v.glow.visible = v.active;

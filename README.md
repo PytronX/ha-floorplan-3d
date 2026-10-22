@@ -13,7 +13,7 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
   - *Raum + Wände*: Rechteck aufziehen → vier Wände und ein Raum.
   - *Wand*: Wandzüge Punkt für Punkt zeichnen (Raster- und Eckpunkt-Fang, Längenanzeige).
   - *Raum*: Bodenflächen als Rechteck oder Polygon, mit Flächenanzeige in m².
-  - *Tür / Fenster*: auf eine Wand klicken, danach entlang der Wand verschieben. 7 Türarten (Drehtür, Doppeltür, Glastür, Balkontür, Schiebetür, Garagentor, Durchgang) und 7 Fensterarten (ein-/zwei-/dreiflügelig, fest, Schiebefenster, bodentief, rund).
+  - *Tür / Fenster*: auf eine Wand klicken, danach entlang der Wand verschieben. 7 Türarten (einflügelige Tür, Doppeltür, Glastür, Balkontür, Schiebetür, Garagentor, Durchgang) und 7 Fensterarten (ein-/zwei-/dreiflügelig, fest, Schiebefenster, bodentief, rund).
   - **Objektbibliothek** wie in SweetHome 3D: Grundformen (Würfel, Kugel, Zylinder, Kegel, Pyramide, Ring …) und Möbel, Leuchten, Küche, Bad, Büro, Treppe usw. mit Vorschaubildern. Anklicken oder in den Grundriss ziehen, dann drehen, skalieren, einfärben oder texturieren.
   - *Hitbox*: Rechteck aufziehen, Entität (mit Suche), Höhe, Icon und Aktionen festlegen.
   - **Etagen**: beliebig viele Stockwerke; die Etage darunter wird beim Zeichnen blass eingeblendet.
@@ -28,7 +28,7 @@ Eine Home-Assistant-**App** mit einer Dashboard-Karte, mit der du **deine Wohnun
 - **Etagen-Umschalter** oben links auf der Karte, sobald es mehr als eine Etage gibt.
 - **Hitboxen**
   - zeigen Name und Zustand als Label (z. B. `21,5 °C`) und leuchten gelb, wenn die Entität „an“ ist;
-  - Lampen leuchten in 3D in ihrer echten Farbe mit Leuchtschein, die Helligkeit steht in Prozent im Label;
+  - Lampen leuchten in 3D in ihrer echten Farbe mit Leuchtschein, die Helligkeit steht in Prozent im Label. Wände werfen Schatten, das Licht bleibt also im Raum;
   - Klick/Tap: *Automatisch* (Licht/Schalter/Ventilator/Cover … umschalten, Button/Szene/Skript auslösen, sonst Info-Dialog), oder fest *Umschalten*, *Auslösen*, *Info-Dialog*, *Nichts*;
   - eigene Aktionen für Halten (Standard: Info-Dialog) und Doppelklick (Standard: nichts);
   - Sichtbarkeit: immer, nur beim Überfahren oder unsichtbar.
